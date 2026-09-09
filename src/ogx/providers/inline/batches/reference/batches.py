@@ -16,6 +16,9 @@ from typing import Any
 from openai.types.batch import BatchError, Errors
 from pydantic import BaseModel
 
+from ogx.core.access_control.datatypes import RouteAccessRule
+from ogx.core.access_control.route_access import is_route_allowed
+from ogx.core.request_headers import get_authenticated_user
 from ogx.core.storage.sqlstore.authorized_sqlstore import AuthorizedSqlStore
 from ogx.log import get_logger
 from ogx.providers.utils.files.response import response_body_bytes
@@ -39,6 +42,7 @@ from ogx_api import (
     OpenAISystemMessageParam,
     OpenAIToolMessageParam,
     OpenAIUserMessageParam,
+    RouteAccessDeniedError,
 )
 from ogx_api.batches.models import (
     CancelBatchRequest,
@@ -129,12 +133,14 @@ class ReferenceBatchesImpl(Batches):
         files_api: Files,
         models_api: Models,
         sql_store: AuthorizedSqlStore,
+        route_policy: list[RouteAccessRule] | None = None,
     ) -> None:
         self.config = config
         self.sql_store = sql_store
         self.inference_api = inference_api
         self.files_api = files_api
         self.models_api = models_api
+        self.route_policy = route_policy or []
         self._processing_tasks: dict[str, asyncio.Task] = {}
         self._batch_semaphore = asyncio.Semaphore(config.max_concurrent_batches)
         self._update_batch_lock = asyncio.Lock()
@@ -180,6 +186,17 @@ class ReferenceBatchesImpl(Batches):
     # restart resumption is implemented, it must explicitly re-enter the original user's
     # RequestProviderDataContext before resuming -- resuming with no context would silently
     # fall back to server-configured credentials and bypass per-user policy.
+    #
+    # The above is resource-level (AuthorizedSqlStore) and per-request-credential
+    # enforcement; it does NOT cover route-level authorization. RouteAuthorizationMiddleware
+    # only inspects the outer HTTP request's own path (e.g. POST /v1/batches), so a
+    # route_policy rule forbidding a user from a route like /v1/embeddings would not stop
+    # that user from creating a batch whose endpoint is /v1/embeddings: batch processing
+    # calls the inference API directly in-process, never through that middleware. The
+    # is_route_allowed() check below re-applies the same route_policy to request.endpoint
+    # at creation time (every line's "url" is required to match request.endpoint, so
+    # checking once here covers the whole batch) so that guarantee holds for batches too.
+    # See test_create_batch_denied_by_route_policy in test_reference.py.
     async def create_batch(
         self,
         request: CreateBatchRequest,
@@ -227,6 +244,16 @@ class ReferenceBatchesImpl(Batches):
             raise ValueError(
                 f"Invalid endpoint: {request.endpoint}. Supported values: /v1/chat/completions, /v1/completions, /v1/embeddings. Code: invalid_value. Param: endpoint",
             )
+
+        # Every request line in the batch is executed against request.endpoint (lines
+        # with a different "url" are rejected in _validate_input), so checking the
+        # batch endpoint once here is equivalent to checking every line. This runs the
+        # same route_policy evaluation RouteAuthorizationMiddleware applies to a live
+        # request to this endpoint -- batch processing calls the inference API directly
+        # in-process and never passes through that middleware, so without this check a
+        # route forbidden at the HTTP layer would remain reachable through a batch.
+        if not is_route_allowed(request.endpoint, get_authenticated_user(), self.route_policy):
+            raise RouteAccessDeniedError(request.endpoint)
 
         if request.completion_window != "24h":
             raise ValueError(
