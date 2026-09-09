@@ -8,9 +8,17 @@ For the list of target models per provider and their CI lanes, see [TARGET_MODEL
 
 ```bash
 # Run all integration tests with existing recordings
-uv run --group test \
+uv run --group dev \
   pytest -sv tests/integration/ --stack-config=starter
 ```
+
+### Provider dependencies
+
+`scripts/integration-tests.sh` checks that the provider dependencies for the
+stack config are installed — the same `ogx stack list-deps <config> |
+xargs -L1 uv pip install` step CI runs — and fails early with the exact
+install command when any are missing. Pass `--install-deps` to install them
+automatically before running the tests.
 
 ## Configuration Options
 
