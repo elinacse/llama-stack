@@ -324,10 +324,14 @@ async def _route_call_in_process(
 
             if async_streaming:
                 # Wrap the body_iterator as an AsyncByteStream for lazy async
-                # iteration, preserving time-to-first-token benefits.
+                # iteration, preserving time-to-first-token benefits. The stream
+                # is consumed after the request_provider_data_context above
+                # exits, so preserve the captured context across iterations.
                 mock_response = httpx.Response(
                     status_code=result.status_code,
-                    stream=_SSEAsyncByteStream(result.body_iterator),
+                    stream=_SSEAsyncByteStream(
+                        preserve_contexts_async_generator(aiter(result.body_iterator), [PROVIDER_DATA_VAR])
+                    ),
                     headers={"Content-Type": content_type},
                     request=httpx.Request(method=method, url=url),
                 )
@@ -708,7 +712,7 @@ class AsyncOGXAsLibraryClient(AsyncOgxClient):
             else:
                 prefix = "!" if in_notebook() else ""  # type: ignore[no-untyped-call]
                 cprint(
-                    f"Please run:\n\n{prefix}ogx list-deps {self.config_path_or_distro_name} | xargs -L1 uv pip install\n\n",
+                    f"Please run:\n\n{prefix}ogx stack list-deps {self.config_path_or_distro_name} | xargs -L1 uv pip install\n\n",
                     "yellow",
                     file=sys.stderr,
                 )
