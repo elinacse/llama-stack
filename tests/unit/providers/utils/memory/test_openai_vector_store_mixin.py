@@ -218,10 +218,19 @@ class TestOpenAIVectorStoreMixin:
         assert result.usage_bytes == expected_bytes
         assert mixin.openai_vector_stores[vector_store_id]["usage_bytes"] == expected_bytes
 
-    async def test_failed_insert_chunks_does_not_add_to_usage_bytes(
-        self, mock_inference_api, mock_files_api, mock_kvstore
+    @pytest.mark.parametrize(
+        "failing_step",
+        [
+            pytest.param("openai_embeddings", id="embeddings_request_fails"),
+            pytest.param("insert_chunks", id="insert_chunks_fails"),
+        ],
+    )
+    async def test_failed_attach_does_not_add_to_usage_bytes(
+        self, mock_inference_api, mock_files_api, mock_kvstore, failing_step
     ):
-        """A failed embed/insert must not inflate the store's usage total (#6542 follow-up)."""
+        """A failed embed or insert must leave usage_bytes at 0 on the file and not inflate
+        the store's usage total -- per OpenAI semantics, usage_bytes counts content that was
+        actually indexed, not attempted input (#6542, #6551)."""
         mock_file_processor_api = AsyncMock()
         mock_file_processor_api.process_file.return_value = MagicMock(
             chunks=[Chunk(content="hello world", chunk_id="c1", chunk_metadata=ChunkMetadata())],
@@ -235,7 +244,10 @@ class TestOpenAIVectorStoreMixin:
             kvstore=mock_kvstore,
             file_processor_api=mock_file_processor_api,
         )
-        mixin.insert_chunks = AsyncMock(side_effect=RuntimeError("insert failed"))
+        if failing_step == "openai_embeddings":
+            mock_inference_api.openai_embeddings.side_effect = RuntimeError("embeddings failed")
+        else:
+            mixin.insert_chunks = AsyncMock(side_effect=RuntimeError("insert failed"))
 
         vector_store_id = "test_vector_store"
         store_info = _make_store_info()
