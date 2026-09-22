@@ -4,12 +4,10 @@
 # This source code is licensed under the terms described in the LICENSE file in
 # the root directory of this source tree.
 from collections.abc import AsyncIterator
-from functools import cache
 from typing import Any
 from urllib.parse import urljoin
 
 import httpx
-import models_dev as _models_dev
 from pydantic import ConfigDict
 
 from ogx.core.request_headers import get_authenticated_user
@@ -21,6 +19,7 @@ from ogx.providers.utils.inference.anthropic_translation import passthrough_anth
 from ogx.providers.utils.inference.http_client import (
     build_network_client_kwargs as _build_network_client_kwargs,
 )
+from ogx.providers.utils.inference.models_dev_registry import lookup_models_dev
 from ogx.providers.utils.inference.openai_mixin import OpenAIMixin
 from ogx.providers.utils.inference.stream_utils import wrap_reasoning_chunks
 from ogx_api import (
@@ -53,26 +52,6 @@ from ogx_api.messages.models import (
 from .config import VLLMInferenceAdapterConfig
 
 log = get_logger(name=__name__, category="inference::vllm")
-
-
-def _is_embedding_model(model_id: str, model: _models_dev.Model) -> bool:
-    return (model.family is not None and "embed" in model.family) or "embed" in model_id.lower()
-
-
-@cache
-def _models_dev_index() -> dict[str, _models_dev.Model]:
-    index: dict[str, _models_dev.Model] = {}
-    # Sort so huggingface is processed last: vLLM serves HF model IDs and the
-    # huggingface provider entry is the most authoritative source for them.
-    for provider in sorted(_models_dev.providers(), key=lambda p: p.id == "huggingface"):
-        for model_id, model in provider.models.items():
-            if _is_embedding_model(model_id, model):
-                index[model_id] = model
-    return index
-
-
-def _lookup_models_dev(identifier: str) -> _models_dev.Model | None:
-    return _models_dev_index().get(identifier)
 
 
 def _convert_developer_messages(messages: list[Any]) -> list[Any]:
@@ -287,7 +266,7 @@ class VLLMInferenceAdapter(OpenAIMixin):
     def construct_model_from_identifier(self, identifier: str) -> Model:
         # vLLM's /v1/models response does not expose a model task/type field,
         # so we classify with models.dev with a name fallback.
-        md = _lookup_models_dev(identifier)
+        md = lookup_models_dev(identifier)
         is_embedding = md is not None or "embed" in identifier.lower()
 
         if is_embedding:

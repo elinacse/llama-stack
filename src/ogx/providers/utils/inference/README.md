@@ -15,6 +15,7 @@ inference/
   stream_utils.py      # Streaming response helpers
   inference_store.py   # InferenceStore for persisting chat completion logs
   http_client.py       # HTTP client utilities
+  models_dev_registry.py # Shared models.dev lookup for classifying embedding/rerank models
 ```
 
 ## OpenAIMixin (`openai_mixin.py`)
@@ -47,3 +48,7 @@ Handles format conversion between OGX's message types and provider-specific form
 ## InferenceStore (`inference_store.py`)
 
 Persists chat completion request/response pairs to the SqlStore. Used by the inference router to enable conversation history retrieval via the Conversations API.
+
+## models.dev registry (`models_dev_registry.py`)
+
+Shared lookup for remote adapters whose `/v1/models` response has no model task/type field (vLLM, llama.cpp servers), so embedding/rerank models can't be told apart from the identifier alone. `lookup_models_dev()` checks the [models.dev](https://models.dev) registry first; callers fall back to a name heuristic (e.g. `"embed"`/`"rerank"` in the identifier) for models it doesn't know about, and can enrich `Model.metadata` with `embedding_dimension`/`context_length` from a matched entry.
