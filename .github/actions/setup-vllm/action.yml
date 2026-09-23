@@ -83,6 +83,14 @@ runs:
         VLLM_PID=$!
         echo "vLLM launched (detached, pid $VLLM_PID)"
 
+        # The root cause of a startup failure (e.g. a worker crash) sits well above the
+        # final stack trace, so dump the whole log rather than just its tail.
+        dump_log() {
+          echo "::group::vLLM server log"
+          cat "$WORKDIR/vllm.log" >&2
+          echo "::endgroup::"
+        }
+
         echo "Waiting for vLLM to be ready..."
         ready=false
         for _ in $(seq 1 180); do
@@ -91,15 +99,15 @@ runs:
             break
           fi
           if ! kill -0 "$VLLM_PID" 2>/dev/null; then
-            echo "Failed to start vLLM: process exited. Last log lines:" >&2
-            tail -n 100 "$WORKDIR/vllm.log" >&2
+            echo "Failed to start vLLM: process exited." >&2
+            dump_log
             exit 1
           fi
           sleep 5
         done
         if [ "$ready" != "true" ]; then
-          echo "Failed to start vLLM within 15 minutes. Last log lines:" >&2
-          tail -n 100 "$WORKDIR/vllm.log" >&2
+          echo "Failed to start vLLM within 15 minutes." >&2
+          dump_log
           exit 1
         fi
 
