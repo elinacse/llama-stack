@@ -15,7 +15,7 @@ inference/
   stream_utils.py      # Streaming response helpers
   inference_store.py   # InferenceStore for persisting chat completion logs
   http_client.py       # HTTP client utilities
-  models_dev_registry.py # Shared models.dev lookup for classifying embedding/rerank models
+  models_dev_registry.py # Shared classify_model() for embedding/rerank model classification
 ```
 
 ## OpenAIMixin (`openai_mixin.py`)
@@ -49,6 +49,6 @@ Handles format conversion between OGX's message types and provider-specific form
 
 Persists chat completion request/response pairs to the SqlStore. Used by the inference router to enable conversation history retrieval via the Conversations API.
 
-## models.dev registry (`models_dev_registry.py`)
+## Model classification (`models_dev_registry.py`)
 
-Shared lookup for remote adapters whose `/v1/models` response has no model task/type field (vLLM, llama.cpp servers), so embedding/rerank models can't be told apart from the identifier alone. `lookup_models_dev()` checks the [models.dev](https://models.dev) registry first; callers fall back to a name heuristic (e.g. `"embed"`/`"rerank"` in the identifier) for models it doesn't know about, and can enrich `Model.metadata` with `embedding_dimension`/`context_length` from a matched entry.
+`classify_model(identifier, provider_id)` classifies embedding and rerank models for remote adapters whose `/v1/models` response has no model task/type field (vLLM, llama.cpp servers), returning `None` when `identifier` is neither so callers can fall back to their own default classification. Only embedding classification consults the [models.dev](https://models.dev) registry, enriching `Model.metadata` with `embedding_dimension`/`context_length` when it has an entry, and falling back to a name heuristic (`"embed"` in the identifier) otherwise; models.dev has no rerank entries, so rerank classification is a name heuristic (`"rerank"` in the identifier) only.

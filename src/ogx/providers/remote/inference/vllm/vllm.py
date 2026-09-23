@@ -19,14 +19,13 @@ from ogx.providers.utils.inference.anthropic_translation import passthrough_anth
 from ogx.providers.utils.inference.http_client import (
     build_network_client_kwargs as _build_network_client_kwargs,
 )
-from ogx.providers.utils.inference.models_dev_registry import lookup_models_dev
+from ogx.providers.utils.inference.models_dev_registry import classify_model
 from ogx.providers.utils.inference.openai_mixin import OpenAIMixin
 from ogx.providers.utils.inference.stream_utils import wrap_reasoning_chunks
 from ogx_api import (
     HealthResponse,
     HealthStatus,
     Model,
-    ModelType,
     OpenAIChatCompletion,
     OpenAIChatCompletionChunk,
     OpenAIChatCompletionChunkWithReasoning,
@@ -266,41 +265,9 @@ class VLLMInferenceAdapter(OpenAIMixin):
     def construct_model_from_identifier(self, identifier: str) -> Model:
         # vLLM's /v1/models response does not expose a model task/type field,
         # so we classify with models.dev with a name fallback.
-        md = lookup_models_dev(identifier)
-        is_embedding = md is not None or "embed" in identifier.lower()
-
-        if is_embedding:
-            metadata: dict[str, int] = {}
-            if md is not None:
-                if md.limit.output:
-                    metadata["embedding_dimension"] = md.limit.output
-                if md.limit.context:
-                    metadata["context_length"] = md.limit.context
-                log.debug(
-                    "Classified embedding model via models.dev",
-                    identifier=identifier,
-                    family=md.family,
-                    metadata=metadata,
-                )
-            else:
-                log.debug(
-                    "Classified embedding model via name heuristic (not in models.dev)",
-                    identifier=identifier,
-                )
-            return Model(
-                provider_id=self.__provider_id__,
-                provider_resource_id=identifier,
-                identifier=identifier,
-                model_type=ModelType.embedding,
-                metadata=metadata,
-            )
-        if "rerank" in identifier.lower():
-            return Model(
-                provider_id=self.__provider_id__,
-                provider_resource_id=identifier,
-                identifier=identifier,
-                model_type=ModelType.rerank,
-            )
+        model = classify_model(identifier, self.__provider_id__)
+        if model is not None:
+            return model
         return super().construct_model_from_identifier(identifier)
 
     async def rerank(
