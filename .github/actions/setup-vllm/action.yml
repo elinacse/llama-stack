@@ -68,6 +68,9 @@ runs:
         WORKDIR="${{ inputs.workdir }}"
         PORT="${{ inputs.port }}"
 
+        # On the CPU backend --gpu-memory-utilization is the fraction of host RAM vLLM
+        # reserves. The 0.92 default exceeds what a 16GB runner has free at startup.
+        #
         # setsid + nohup fully detach the server from this step's process group so it
         # keeps running after the step's shell exits (unlike a plain `&`). The weights
         # are served from the hash-verified local directory, so HF is never contacted.
@@ -79,6 +82,7 @@ runs:
           --tool-call-parser hermes \
           --reasoning-parser deepseek_r1 \
           --max-model-len 8192 \
+          --gpu-memory-utilization 0.5 \
           < /dev/null > "$WORKDIR/vllm.log" 2>&1 &
         VLLM_PID=$!
         echo "vLLM launched (detached, pid $VLLM_PID)"
