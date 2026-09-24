@@ -1,5 +1,5 @@
 {
-  "test_id": "tests/integration/responses/test_reasoning.py::test_reasoning_non_streaming[txt=vllm/Qwen/Qwen3-0.6B]",
+  "test_id": "tests/integration/responses/test_reasoning.py::test_reasoning_summary_streaming[txt=vllm/Qwen/Qwen3-0.6B-concise]",
   "request": {
     "method": "POST",
     "url": "http://localhost:8000/v1/v1/models",
@@ -27,7 +27,7 @@
           "max_model_len": 8192,
           "permission": [
             {
-              "id": "modelperm-97dec1f48abc5556",
+              "id": "modelperm-aeb2a0c9154aae3c",
               "object": "model_permission",
               "created": 1790240883,
               "allow_create_engine": false,
