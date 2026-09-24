@@ -27,9 +27,9 @@
           "max_model_len": 8192,
           "permission": [
             {
-              "id": "modelperm-a93eda4a90d32fbe",
+              "id": "modelperm-a09b8c42c676e579",
               "object": "model_permission",
-              "created": 1790240877,
+              "created": 1790241789,
               "allow_create_engine": false,
               "allow_sampling": true,
               "allow_logprobs": true,
