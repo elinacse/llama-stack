@@ -4,37 +4,49 @@
 # This source code is licensed under the terms described in the LICENSE file in
 # the root directory of this source tree.
 
-"""Containment scoring for short gold answers, plus the majority-answer baseline.
+"""Containment scoring for short gold answers, plus the constant-reply baseline.
 
 MultiHOP gold answers are short (median 1 word: Yes, No, an entity name), while the
 file_search template makes replies several sentences long. SQuAD token-F1 then measures
 reply length rather than correctness, so MultiHOP is scored by whether the normalized gold
 answer appears, as whole tokens, in the normalized reply.
 
-Containment accepts hedged replies (a reply of "Yes No" contains both), so every score is
-reported next to the majority-answer baseline, which needs no retrieval and no generation.
+Containment accepts hedged replies (a reply of "Yes No" contains both), and most gold answers
+come from a few values, so a query-independent reply that lists the most common answers scores
+high. Every score is therefore reported next to that constant-reply baseline, which needs no
+retrieval and no generation. Containment is only informative above it.
 """
 
 from __future__ import annotations
 
 import re
 import string
+import unicodedata
 from collections import Counter
 
 _CITATION_RE = re.compile(r"<\|[^|>]*\|>")
 _ARTICLES_RE = re.compile(r"\b(a|an|the)\b")
-_PUNCTUATION = frozenset(string.punctuation)
+_ASCII_PUNCTUATION = frozenset(string.punctuation)
+
+# How many of the most common gold answers the constant-reply baseline lists. Listing every
+# distinct answer would score 1.0, so the reply is capped; five covers 83% of MultiHOP.
+CONSTANT_REPLY_MAX_ANSWERS = 5
+
+
+def _is_punctuation(ch: str) -> bool:
+    """ASCII punctuation, plus Unicode punctuation such as em dashes, curly quotes and ellipses."""
+    return ch in _ASCII_PUNCTUATION or unicodedata.category(ch).startswith("P")
 
 
 def normalize_answer(text: str) -> list[str]:
     """SQuAD-style normalization (lowercase, no punctuation or articles), as tokens.
 
-    Unlike SQuAD, punctuation becomes a space rather than being deleted, so "Bankman-Fried"
-    and "Bankman Fried" match. Citation markers such as ``<|file-abc|>`` are dropped first so
+    Unlike SQuAD, punctuation (ASCII or Unicode) becomes a space rather than being deleted, so
+    "Bankman-Fried" and "Bankman Fried" match and "Yes\u2014both" splits into two tokens. Citation markers such as ``<|file-abc|>`` are dropped first so
     file ids cannot match.
     """
     text = _CITATION_RE.sub(" ", text).lower()
-    text = "".join(" " if ch in _PUNCTUATION else ch for ch in text)
+    text = "".join(" " if _is_punctuation(ch) else ch for ch in text)
     return _ARTICLES_RE.sub(" ", text).split()
 
 
@@ -61,8 +73,14 @@ def containment_accuracy(predictions: dict[str, str], ground_truths: dict[str, s
     return hits / len(common_qids)
 
 
-def majority_answer_baseline(ground_truths: dict[str, str | list[str]]) -> tuple[str, float]:
-    """The most common gold answer and the containment score of replying with it to every query."""
+def constant_reply_baseline(
+    ground_truths: dict[str, str | list[str]], max_answers: int = CONSTANT_REPLY_MAX_ANSWERS
+) -> tuple[str, float]:
+    """Best query-independent reply and its containment score.
+
+    The reply lists the ``max_answers`` most common gold answers, so it catches the hedge that
+    a single "always Yes" reply misses. It uses no retrieval and no generation.
+    """
     counts: Counter[str] = Counter()
     representative: dict[str, str] = {}
     for gold in ground_truths.values():
@@ -72,24 +90,23 @@ def majority_answer_baseline(ground_truths: dict[str, str | list[str]]) -> tuple
         representative.setdefault(key, answer)
     if not counts:
         return "", 0.0
-    key = counts.most_common(1)[0][0]
-    answer = representative[key]
-    return answer, containment_accuracy(dict.fromkeys(ground_truths, answer), ground_truths)
+    reply = " ".join(representative[key] for key, _ in counts.most_common(max_answers))
+    return reply, containment_accuracy(dict.fromkeys(ground_truths, reply), ground_truths)
 
 
 def baseline_warning(metrics: dict) -> str | None:
-    """Warning for a MultiHOP run that does not clear the majority-answer baseline, else None."""
+    """Warning for a MultiHOP run that does not clear the constant-reply baseline, else None."""
     if "containment" not in metrics:
         return (
             "scored with SQuAD token-F1 only, which is dominated by reply length on MultiHOP "
-            "and cannot rank systems; re-run to get containment and the majority baseline"
+            "and cannot rank systems; re-run to get containment and the constant-reply baseline"
         )
-    baseline = metrics.get("majority_baseline")
+    baseline = metrics.get("constant_baseline")
     if baseline is None:
-        return "no majority-answer baseline recorded; re-run to get one"
+        return "no constant-reply baseline recorded; re-run to get one"
     if metrics["containment"] <= baseline:
         return (
-            f"containment {metrics['containment']:.4f} does not beat the majority-answer baseline "
-            f"{baseline:.4f} (always replying {metrics.get('majority_answer', '?')!r})"
+            f"containment {metrics['containment']:.4f} does not beat the constant-reply baseline "
+            f"{baseline:.4f} (always replying {metrics.get('constant_reply', '?')!r})"
         )
     return None

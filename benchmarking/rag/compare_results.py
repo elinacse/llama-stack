@@ -27,7 +27,7 @@ PRIMARY_METRICS = {
 
 SECONDARY_METRICS = {
     "beir": ["recall_10", "map_cut_10"],
-    "multihop": ["majority_baseline", "f1", "exact_match", "rouge_l", "ndcg_cut_10"],
+    "multihop": ["constant_baseline", "f1", "exact_match", "rouge_l", "ndcg_cut_10"],
     "qrecc": ["exact_match", "rouge_l"],
     "doc2dial": ["exact_match", "rouge_l"],
 }

@@ -10,7 +10,7 @@ switch backends.
 | Benchmark | Type | Primary Metric | Description |
 |---|---|---|---|
 | **BEIR** | Retrieval-only | nDCG@10 | Standard IR benchmarks (nfcorpus, scifact, arguana, fiqa, trec-covid) |
-| **MultiHOP RAG** | End-to-end RAG | Containment (vs. majority baseline) | Multi-hop reasoning over news articles |
+| **MultiHOP RAG** | End-to-end RAG | Containment (vs. constant-reply baseline) | Multi-hop reasoning over news articles |
 | **QReCC** | Conversational RAG | EM / F1 | Multi-turn conversational QA with scoped corpus per conversation |
 | **Doc2Dial** | Document-grounded dialogue | EM / F1 | Goal-oriented dialogues grounded in documents |
 
@@ -159,8 +159,9 @@ benchmarking/rag/
    Exact Match, token-level F1 (HuggingFace SQuAD metric), and ROUGE-L.
    MultiHOP gold answers are ~1 word, so token-F1 there mostly measures reply
    length; MultiHOP is instead scored by containment (does the normalized gold
-   answer appear in the reply) and reported next to a majority-answer baseline
-   (always reply "Yes"). A run that does not beat that baseline is flagged by
+   answer appear in the reply) and reported next to a constant-reply baseline
+   (a query-independent reply listing the five most common gold answers, 0.8337
+   on MultiHOP). A run that does not beat that baseline is flagged by
    `compare_results.py`.
 
 4. **Conversational RAG** (QReCC, Doc2Dial): Multi-turn conversations are

@@ -19,7 +19,7 @@ _spec.loader.exec_module(_mod)
 normalize_answer = _mod.normalize_answer
 contains_answer = _mod.contains_answer
 containment_accuracy = _mod.containment_accuracy
-majority_answer_baseline = _mod.majority_answer_baseline
+constant_reply_baseline = _mod.constant_reply_baseline
 baseline_warning = _mod.baseline_warning
 
 # Shaped like MultiHopRAG: mostly one-word gold answers, dominated by Yes/No.
@@ -47,6 +47,16 @@ class TestNormalizeAnswer:
     def test_citation_markers_are_dropped(self):
         assert normalize_answer("Yes <|file-abc123|>.") == ["yes"]
 
+    @pytest.mark.parametrize(
+        "text",
+        ["Yes\u2014both agree", "\u201cYes\u201d both agree", "Yes\u2026 both agree", "Yes\u2013both agree"],
+    )
+    def test_unicode_punctuation_separates_tokens(self, text):
+        assert normalize_answer(text) == ["yes", "both", "agree"]
+
+    def test_ascii_symbols_are_still_separators(self):
+        assert normalize_answer("$5+6|7") == ["5", "6", "7"]
+
 
 class TestContainsAnswer:
     def test_answer_inside_a_long_cited_reply(self):
@@ -70,6 +80,13 @@ class TestContainsAnswer:
 
     def test_empty_reply_never_matches(self):
         assert not contains_answer("", "Yes")
+
+    @pytest.mark.parametrize(
+        "reply",
+        ["Yes\u2014both reports agree.", "The answer is \u201cYes\u201d.", "Yes\u2026 they agree", "\u2018Yes\u2019"],
+    )
+    def test_answer_next_to_unicode_punctuation_is_found(self, reply):
+        assert contains_answer(reply, "Yes")
 
 
 class TestContainmentAccuracy:
@@ -103,39 +120,65 @@ class TestContainmentAccuracy:
         assert containment_accuracy({"99": "Yes"}, GOLD) == 0.0
 
 
-class TestMajorityAnswerBaseline:
-    def test_most_common_gold_and_its_constant_reply_score(self):
-        answer, score = majority_answer_baseline(GOLD)
-        assert answer == "Yes"
-        assert score == pytest.approx(2 / 6)
+# 40 queries: a few categorical answers plus a long tail of one-off entities, like MultiHopRAG.
+LONG_TAIL = {
+    **{f"y{i}": "Yes" for i in range(10)},
+    **{f"n{i}": "No" for i in range(8)},
+    **{f"i{i}": "Insufficient information." for i in range(5)},
+    **{f"s{i}": "Sam Bankman-Fried" for i in range(4)},
+    **{f"g{i}": "Google" for i in range(3)},
+    **{f"t{i}": f"Entity {i}" for i in range(10)},
+}
+
+
+class TestConstantReplyBaseline:
+    def test_reply_lists_the_most_common_answers_and_scores_their_coverage(self):
+        reply, score = constant_reply_baseline(LONG_TAIL)
+        assert reply == "Yes No Insufficient information. Sam Bankman-Fried Google"
+        assert score == pytest.approx(30 / 40)
+
+    def test_cap_is_configurable(self):
+        reply, score = constant_reply_baseline(LONG_TAIL, max_answers=1)
+        assert (reply, score) == ("Yes", pytest.approx(10 / 40))
 
     def test_case_and_punctuation_variants_count_as_one_answer(self):
-        answer, score = majority_answer_baseline({"1": "Yes", "2": "yes.", "3": "No"})
-        assert answer == "Yes"
+        reply, score = constant_reply_baseline({"1": "Yes", "2": "yes.", "3": "No"}, max_answers=1)
+        assert reply == "Yes"
         assert score == pytest.approx(2 / 3)
 
     def test_empty_ground_truths(self):
-        assert majority_answer_baseline({}) == ("", 0.0)
+        assert constant_reply_baseline({}) == ("", 0.0)
 
-    def test_a_hedged_constant_reply_beats_the_majority_baseline(self):
-        """The known weakness of containment, which is why the baseline is printed next to it."""
-        _, majority = majority_answer_baseline(GOLD)
-        hedge = containment_accuracy(dict.fromkeys(GOLD, "Yes No"), GOLD)
-        assert hedge > majority
+    def test_a_query_independent_hedge_of_common_answers_does_not_clear_it(self):
+        """A constant listing the frequent answers is the best a no-retrieval system can do."""
+        reply, baseline = constant_reply_baseline(LONG_TAIL)
+        hedge = containment_accuracy(dict.fromkeys(LONG_TAIL, reply), LONG_TAIL)
+        metrics = {"containment": hedge, "constant_baseline": baseline, "constant_reply": reply}
+        assert "does not beat the constant-reply baseline" in baseline_warning(metrics)
+
+    def test_a_partial_hedge_also_fails_to_clear_it(self):
+        _, baseline = constant_reply_baseline(LONG_TAIL)
+        hedge = containment_accuracy(dict.fromkeys(LONG_TAIL, "Yes No"), LONG_TAIL)
+        assert hedge < baseline
+
+    def test_a_correct_verbose_system_clears_it(self):
+        _, baseline = constant_reply_baseline(LONG_TAIL)
+        verbose = {qid: _pad(answer, 120) for qid, answer in LONG_TAIL.items()}
+        assert containment_accuracy(verbose, LONG_TAIL) > baseline
 
 
 class TestBaselineWarning:
     def test_run_that_clears_the_baseline_is_quiet(self):
-        assert baseline_warning({"containment": 0.5, "majority_baseline": 0.3}) is None
+        assert baseline_warning({"containment": 0.5, "constant_baseline": 0.3}) is None
 
     @pytest.mark.parametrize("containment", [0.3, 0.1])
     def test_run_at_or_below_the_baseline_is_flagged(self, containment):
-        warning = baseline_warning({"containment": containment, "majority_baseline": 0.3, "majority_answer": "Yes"})
-        assert "does not beat the majority-answer baseline" in warning
+        warning = baseline_warning({"containment": containment, "constant_baseline": 0.3, "constant_reply": "Yes"})
+        assert "does not beat the constant-reply baseline" in warning
         assert "'Yes'" in warning
 
     def test_legacy_f1_only_results_are_flagged_as_not_rankable(self):
         assert "token-F1" in baseline_warning({"f1": 0.0141, "exact_match": 0.0})
 
     def test_missing_baseline_is_flagged(self):
-        assert "no majority-answer baseline" in baseline_warning({"containment": 0.9})
+        assert "no constant-reply baseline" in baseline_warning({"containment": 0.9})

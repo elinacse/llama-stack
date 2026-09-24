@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging  # allow-direct-logging
 
 from datasets import load_dataset
-from lib.answer_match import containment_accuracy, majority_answer_baseline
+from lib.answer_match import constant_reply_baseline, containment_accuracy
 from lib.ingest import ingest_corpus
 from lib.metrics import answer_metrics, retrieval_metrics
 from lib.query import rag_query_batch
@@ -117,16 +117,16 @@ class MultiHOPBenchmark(BenchmarkRunner):
         metrics = answer_metrics(all_predictions, all_ground_truths)
 
         # Gold answers are ~1 word, so SQuAD EM/F1 mostly measures reply length here.
-        # Containment is the primary score; the majority-answer baseline is the bar it must clear.
+        # Containment is the primary score; the constant-reply baseline is the bar it must clear.
         metrics["containment"] = containment_accuracy(all_predictions, all_ground_truths)
-        majority_answer, majority_baseline = majority_answer_baseline(all_ground_truths)
-        metrics["majority_answer"] = majority_answer
-        metrics["majority_baseline"] = majority_baseline
-        metrics["clears_majority_baseline"] = metrics["containment"] > majority_baseline
-        if not metrics["clears_majority_baseline"]:
+        constant_reply, constant_baseline = constant_reply_baseline(all_ground_truths)
+        metrics["constant_reply"] = constant_reply
+        metrics["constant_baseline"] = constant_baseline
+        metrics["clears_constant_baseline"] = metrics["containment"] > constant_baseline
+        if not metrics["clears_constant_baseline"]:
             logger.warning(
-                f"Containment {metrics['containment']:.4f} does not beat the majority-answer baseline "
-                f"{majority_baseline:.4f} (always replying {majority_answer!r})"
+                f"Containment {metrics['containment']:.4f} does not beat the constant-reply baseline "
+                f"{constant_baseline:.4f} (always replying {constant_reply!r})"
             )
 
         # Build qrels from evidence docs
