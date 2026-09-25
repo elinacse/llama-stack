@@ -4,8 +4,10 @@
 # This source code is licensed under the terms described in the LICENSE file in
 # the root directory of this source tree.
 
+import ssl
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from ogx.providers.remote.inference.llama_cpp_server.config import LlamaCppServerConfig
@@ -153,3 +155,49 @@ class TestRerank:
             request = RerankRequest(model="bge-reranker-v2-m3", query="test", items=["doc1"])
             with pytest.raises(RuntimeError, match="status 500"):
                 await adapter.rerank(request)
+
+
+class TestRerankUsesNetworkConfig:
+    """rerank() builds its own httpx client, which must honour config.network like the OpenAI client."""
+
+    @staticmethod
+    async def _rerank_client_kwargs(adapter: LlamaCppServerInferenceAdapter) -> dict:
+        with patch("httpx.AsyncClient") as mock_client_class:
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = {"results": [{"index": 0, "relevance_score": 0.9}]}
+            client = MagicMock()
+            client.post = AsyncMock(return_value=response)
+            mock_client_class.return_value.__aenter__.return_value = client
+
+            await adapter.rerank(RerankRequest(model="bge-reranker-v2-m3", query="q", items=["doc"]))
+
+        mock_client_class.assert_called_once()
+        return mock_client_class.call_args.kwargs
+
+    async def test_applies_network_config(self):
+        adapter = _make_adapter(
+            network={
+                "tls": {"verify": False},
+                "proxy": {"url": "http://proxy.example.com:3128"},
+                "headers": {"X-Route": "team-a"},
+                "timeout": 12.0,
+                "limits": {"max_connections": 7},
+            }
+        )
+
+        kwargs = await self._rerank_client_kwargs(adapter)
+
+        assert kwargs["verify"] is False
+        assert set(kwargs["mounts"]) == {"http://", "https://"}
+        assert kwargs["headers"] == {"X-Route": "team-a"}
+        assert kwargs["timeout"] == httpx.Timeout(12.0)
+        assert kwargs["limits"].max_connections == 7
+
+    async def test_uses_shared_ssl_context_without_network_config(self):
+        adapter = _make_adapter()
+
+        kwargs = await self._rerank_client_kwargs(adapter)
+
+        assert kwargs == {"verify": adapter.shared_ssl_context}
+        assert isinstance(kwargs["verify"], ssl.SSLContext)

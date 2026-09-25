@@ -291,6 +291,23 @@ class OpenAIMixin(NeedsRequestProviderData, ABC, BaseModel):
         self._cached_client_key = cache_key
         return client
 
+    def _build_httpx_client_kwargs(self, default_timeout: float | None = None) -> dict[str, Any]:
+        """Build ``httpx.AsyncClient`` kwargs for ad-hoc calls outside the OpenAI client.
+
+        Health checks, Anthropic passthrough and rerank build their own client, which must
+        apply ``config.network`` (proxy, TLS, headers, timeout, pool limits) exactly like the
+        primary client does, and otherwise reuse the shared SSL context.
+
+        ``default_timeout`` (seconds) is the call's own timeout and only applies when
+        ``network.timeout`` is unset: an operator-configured timeout takes precedence.
+        """
+        kwargs = build_network_client_kwargs(self.config.network)
+        if not kwargs:
+            kwargs["verify"] = self.shared_ssl_context
+        if default_timeout is not None:
+            kwargs.setdefault("timeout", httpx.Timeout(default_timeout))
+        return kwargs
+
     def _get_api_key_from_config_or_provider_data(self) -> str | None:
         api_key = self.get_api_key()
 

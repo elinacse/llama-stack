@@ -77,7 +77,7 @@ class LlamaCppServerInferenceAdapter(OpenAIMixin):
             headers["Authorization"] = f"Bearer {api_key}"
 
         try:
-            async with httpx.AsyncClient(verify=self.shared_ssl_context) as client:
+            async with httpx.AsyncClient(**self._build_httpx_client_kwargs()) as client:
                 response = await client.post(endpoint, headers=headers, json=payload)
                 if response.status_code != 200:
                     raise RuntimeError(
