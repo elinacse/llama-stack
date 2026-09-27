@@ -43,12 +43,14 @@ def reset_test_context(token) -> None:
 
 
 def sync_test_context_from_provider_data():
-    """Sync test context from provider data when running in server test mode."""
-    if "OGX_TEST_INFERENCE_MODE" not in os.environ:
-        return None
+    """Sync test context from provider data when running in test mode.
 
-    stack_config_type = os.environ.get("OGX_TEST_STACK_CONFIG_TYPE", "library_client")
-    if stack_config_type != "server":
+    Shared by the server middleware (server mode, over real HTTP) and the in-process
+    library client (library_client mode, no HTTP): both parse the same
+    X-OGX-Provider-Data header into PROVIDER_DATA_VAR before calling this, so it derives
+    TEST_CONTEXT identically regardless of which transport carried the request.
+    """
+    if "OGX_TEST_INFERENCE_MODE" not in os.environ:
         return None
 
     try:
