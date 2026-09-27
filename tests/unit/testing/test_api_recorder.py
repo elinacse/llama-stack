@@ -5,7 +5,10 @@
 # the root directory of this source tree.
 
 """Tests for test-ID injection: the OgxClient._prepare_request patch, and the
-httpx event-hook clients used for openai.OpenAI/AsyncOpenAI and langchain (#6627)."""
+httpx event-hook clients used for openai.OpenAI/AsyncOpenAI and langchain (#6627).
+
+Injection is unconditional -- it applies in every stack mode (#6667) -- so these tests
+only distinguish an active test context (test_id is set) from no test context at all."""
 
 import json
 
@@ -67,8 +70,7 @@ class TestPatchOgxClient:
 
         assert prepared == [request]
 
-    def test_test_id_injected_in_server_mode(self, unpatched_ogx_client, test_context, monkeypatch):
-        monkeypatch.setenv("OGX_TEST_STACK_CONFIG_TYPE", "server")
+    def test_test_id_injected_when_a_test_context_is_active(self, unpatched_ogx_client, test_context):
         patch_httpx_for_test_id()
 
         request = _request()
@@ -76,8 +78,7 @@ class TestPatchOgxClient:
 
         assert json.loads(request.headers[PROVIDER_DATA_HEADER]) == {"__test_id": TEST_ID}
 
-    def test_existing_provider_data_is_preserved(self, unpatched_ogx_client, test_context, monkeypatch):
-        monkeypatch.setenv("OGX_TEST_STACK_CONFIG_TYPE", "server")
+    def test_existing_provider_data_is_preserved(self, unpatched_ogx_client, test_context):
         patch_httpx_for_test_id()
 
         request = _request()
@@ -86,8 +87,7 @@ class TestPatchOgxClient:
 
         assert json.loads(request.headers[PROVIDER_DATA_HEADER]) == {"api_key": "abc", "__test_id": TEST_ID}
 
-    def test_no_injection_in_library_client_mode(self, unpatched_ogx_client, test_context, monkeypatch):
-        monkeypatch.setenv("OGX_TEST_STACK_CONFIG_TYPE", "library_client")
+    def test_no_injection_without_an_active_test_context(self, unpatched_ogx_client):
         patch_httpx_for_test_id()
 
         request = _request()
@@ -132,8 +132,7 @@ class TestBuildTestIdHttpClient:
         assert isinstance(client, httpx.AsyncClient)
         await client.aclose()
 
-    def test_sync_client_injects_test_id_in_server_mode(self, test_context, monkeypatch):
-        monkeypatch.setenv("OGX_TEST_STACK_CONFIG_TYPE", "server")
+    def test_sync_client_injects_test_id(self, test_context):
         captured: list[httpx.Request] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -145,8 +144,7 @@ class TestBuildTestIdHttpClient:
 
         assert json.loads(captured[0].headers[PROVIDER_DATA_HEADER]) == {"__test_id": TEST_ID}
 
-    async def test_async_client_injects_test_id_in_server_mode(self, test_context, monkeypatch):
-        monkeypatch.setenv("OGX_TEST_STACK_CONFIG_TYPE", "server")
+    async def test_async_client_injects_test_id(self, test_context):
         captured: list[httpx.Request] = []
 
         async def handler(request: httpx.Request) -> httpx.Response:
@@ -158,8 +156,7 @@ class TestBuildTestIdHttpClient:
 
         assert json.loads(captured[0].headers[PROVIDER_DATA_HEADER]) == {"__test_id": TEST_ID}
 
-    def test_no_injection_outside_server_mode(self, test_context, monkeypatch):
-        monkeypatch.setenv("OGX_TEST_STACK_CONFIG_TYPE", "library_client")
+    def test_no_injection_without_an_active_test_context(self):
         captured: list[httpx.Request] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -171,9 +168,8 @@ class TestBuildTestIdHttpClient:
 
         assert PROVIDER_DATA_HEADER not in captured[0].headers
 
-    def test_preserves_callers_own_event_hooks(self, test_context, monkeypatch):
+    def test_preserves_callers_own_event_hooks(self, test_context):
         """Passing event_hooks= must add our hook alongside the caller's, not replace it."""
-        monkeypatch.setenv("OGX_TEST_STACK_CONFIG_TYPE", "server")
         own_hook_calls: list[httpx.Request] = []
 
         def own_hook(request: httpx.Request) -> None:
@@ -193,10 +189,9 @@ class TestBuildTestIdHttpClient:
         assert len(own_hook_calls) == 1
         assert json.loads(captured[0].headers[PROVIDER_DATA_HEADER]) == {"__test_id": TEST_ID}
 
-    def test_openai_client_with_http_client_gets_test_id(self, test_context, monkeypatch):
+    def test_openai_client_with_http_client_gets_test_id(self, test_context):
         """End-to-end: a real openai.OpenAI() constructed with http_client=build_test_id_http_client()
         stamps __test_id, without touching OpenAI._prepare_request at all."""
-        monkeypatch.setenv("OGX_TEST_STACK_CONFIG_TYPE", "server")
         captured: list[httpx.Request] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
