@@ -95,6 +95,19 @@ class TestPatchOgxClient:
 
         assert PROVIDER_DATA_HEADER not in request.headers
 
+    def test_malformed_existing_provider_data_is_discarded_rather_than_raising(
+        self, unpatched_ogx_client, test_context
+    ):
+        """Injection delegates its header parsing to stamp_test_id_into_headers() (shared with
+        the in-process library-client path), which must not raise on a header it can't parse."""
+        patch_httpx_for_test_id()
+
+        request = _request()
+        request.headers[PROVIDER_DATA_HEADER] = "not-valid-json"
+        _ogx_client()._prepare_request(request)
+
+        assert json.loads(request.headers[PROVIDER_DATA_HEADER]) == {"__test_id": TEST_ID}
+
     def test_originals_survive_api_recording_clearing_original_methods(self, unpatched_ogx_client):
         """api_recording() reassigns and clears _original_methods, so the patch must not read it."""
         calls = []
