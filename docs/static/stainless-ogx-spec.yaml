@@ -11037,6 +11037,7 @@ components:
             type: array
           - type: 'null'
           description: Tools to include in token count.
+      additionalProperties: true
       type: object
       required:
       - model

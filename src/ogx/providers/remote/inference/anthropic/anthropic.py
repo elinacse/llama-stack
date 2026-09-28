@@ -11,7 +11,6 @@ import httpx
 from anthropic import AsyncAnthropic
 
 from ogx.providers.utils.inference.anthropic_translation import passthrough_anthropic_stream
-from ogx.providers.utils.inference.http_client import build_network_client_kwargs
 from ogx.providers.utils.inference.openai_mixin import OpenAIMixin
 from ogx_api.inference.models import (
     OpenAIChatCompletion,
@@ -58,7 +57,7 @@ def _error_message(response: httpx.Response) -> str:
             return message
     except (ValueError, KeyError, TypeError):
         pass
-    return f"Anthropic API request failed with status {response.status_code}"
+    return f"Failed to complete Anthropic API request: status {response.status_code}"
 
 
 class AnthropicInferenceAdapter(OpenAIMixin):
@@ -87,17 +86,6 @@ class AnthropicInferenceAdapter(OpenAIMixin):
 
     def get_base_url(self):
         return "https://api.anthropic.com/v1"
-
-    def _build_httpx_client_kwargs(self, default_timeout: float) -> dict[str, Any]:
-        """httpx client kwargs that honour config.network, else the shared SSL context.
-
-        ``default_timeout`` applies only when ``network.timeout`` is unset.
-        """
-        kwargs = build_network_client_kwargs(self.config.network)
-        if not kwargs:
-            kwargs["verify"] = self.shared_ssl_context
-        kwargs.setdefault("timeout", httpx.Timeout(default_timeout))
-        return kwargs
 
     def _messages_headers(self) -> dict[str, str]:
         api_key = self._get_api_key_from_config_or_provider_data()
@@ -130,15 +118,14 @@ class AnthropicInferenceAdapter(OpenAIMixin):
                 url=url,
                 req_body=body,
                 headers=headers,
-                httpx_client_kwargs=build_network_client_kwargs(self.config.network)
-                or {"verify": self.shared_ssl_context},
+                httpx_client_kwargs=self._build_httpx_client_kwargs(300.0),
             ):
                 yield event
         except httpx.HTTPStatusError as e:
             # The response body is already closed here, so only the status is available.
             raise AnthropicAPIError(
                 e.response.status_code,
-                f"Anthropic API request failed with status {e.response.status_code}",
+                f"Failed to complete Anthropic API request: status {e.response.status_code}",
             ) from e
 
     async def anthropic_messages(
