@@ -22,7 +22,7 @@ import pytest
 from fastapi.responses import StreamingResponse
 from ogx_client import AsyncStream
 
-from ogx.core.library_client import AsyncOGXAsLibraryClient, _route_call_in_process
+from ogx.core.library_client import AsyncOGXAsLibraryClient, _route_call_in_process, _stamp_test_id_into_headers
 from ogx.core.request_headers import PROVIDER_DATA_VAR
 from ogx.core.server.routes import RouteAuthInfo, RouteImpls
 from ogx.core.testing_context import (
@@ -65,6 +65,61 @@ async def _call_in_process(handler, *, provider_data=None, async_streaming=False
         convert_body=lambda _func, body, **_kwargs: body,
         async_streaming=async_streaming,
     )
+
+
+class TestStampTestIdIntoHeaders:
+    """_stamp_test_id_into_headers() must tolerate the same malformed provider-data header
+    parse_request_provider_data() (request_headers.py) already defends against, since that's
+    what request_provider_data_context() runs on the header right after this stamps it."""
+
+    def test_no_op_without_an_active_test_context(self):
+        headers: dict[str, str] = {}
+
+        _stamp_test_id_into_headers(headers)
+
+        assert headers == {}
+
+    def test_adds_the_header_when_absent(self, active_test_context):
+        headers: dict[str, str] = {}
+
+        _stamp_test_id_into_headers(headers)
+
+        assert json.loads(headers["X-OGX-Provider-Data"]) == {"__test_id": active_test_context}
+
+    def test_merges_into_valid_existing_json(self, active_test_context):
+        headers = {"X-OGX-Provider-Data": json.dumps({"other_key": "value"})}
+
+        _stamp_test_id_into_headers(headers)
+
+        assert json.loads(headers["X-OGX-Provider-Data"]) == {
+            "other_key": "value",
+            "__test_id": active_test_context,
+        }
+
+    def test_invalid_json_is_discarded_rather_than_raising(self, active_test_context):
+        headers = {"X-OGX-Provider-Data": "not-valid-json"}
+
+        _stamp_test_id_into_headers(headers)
+
+        assert json.loads(headers["X-OGX-Provider-Data"]) == {"__test_id": active_test_context}
+
+    def test_non_dict_json_is_discarded_rather_than_raising(self, active_test_context):
+        headers = {"X-OGX-Provider-Data": json.dumps(["a", "list", "not", "an", "object"])}
+
+        _stamp_test_id_into_headers(headers)
+
+        assert json.loads(headers["X-OGX-Provider-Data"]) == {"__test_id": active_test_context}
+
+    def test_lowercase_header_key_is_recognized_and_preserved(self, active_test_context):
+        headers = {"x-ogx-provider-data": json.dumps({"other_key": "value"})}
+
+        _stamp_test_id_into_headers(headers)
+
+        assert "X-OGX-Provider-Data" not in headers
+        assert json.loads(headers["x-ogx-provider-data"]) == {
+            "other_key": "value",
+            "__test_id": active_test_context,
+        }
 
 
 class TestSyncTestContextFromProviderData:

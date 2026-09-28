@@ -219,9 +219,28 @@ def _stamp_test_id_into_headers(headers: dict[str, str]) -> None:
         return
     keys = ("X-OGX-Provider-Data", "x-ogx-provider-data")
     existing_key = next((key for key in keys if key in headers), None)
-    provider_data = json.loads(headers[existing_key]) if existing_key and headers[existing_key] else {}
+    provider_data = _parse_existing_provider_data_header(headers[existing_key]) if existing_key else {}
     provider_data["__test_id"] = test_id
     headers[existing_key or "X-OGX-Provider-Data"] = json.dumps(provider_data)
+
+
+def _parse_existing_provider_data_header(value: str) -> dict[str, Any]:
+    """Parse an existing X-OGX-Provider-Data header value, tolerating the same malformed
+    input parse_request_provider_data() (request_headers.py) does: missing, invalid JSON, or
+    not a JSON object all fall back to an empty dict rather than raising, since that request
+    context manager would have dropped the header the same way.
+    """
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        logger.error("Provider data not encoded as a JSON object; dropping existing header", value=value)
+        return {}
+    if not isinstance(parsed, dict):
+        logger.error("Provider data must be encoded as a JSON object; dropping existing header", value=value)
+        return {}
+    return parsed
 
 
 @contextlib.contextmanager
