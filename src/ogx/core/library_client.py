@@ -46,16 +46,11 @@ from termcolor import cprint
 
 from ogx.core.build import print_pip_install_help
 from ogx.core.configure import parse_and_maybe_upgrade_config
-from ogx.core.request_headers import PROVIDER_DATA_VAR, request_provider_data_context
+from ogx.core.request_headers import PROVIDER_DATA_VAR, request_provider_data_context, stamp_test_id_into_headers
 from ogx.core.resolver import ProviderRegistry
 from ogx.core.server.routes import RouteImpls, find_matching_route, initialize_route_impls
 from ogx.core.stack import Stack, get_stack_run_config_from_distro, replace_env_vars
-from ogx.core.testing_context import (
-    TEST_CONTEXT,
-    get_test_context,
-    reset_test_context,
-    sync_test_context_from_provider_data,
-)
+from ogx.core.testing_context import TEST_CONTEXT, reset_test_context, sync_test_context_from_provider_data
 from ogx.core.utils.config import redact_sensitive_fields
 from ogx.core.utils.context import preserve_contexts_async_generator
 from ogx.core.utils.exec import in_notebook
@@ -205,44 +200,6 @@ class _SSEAsyncByteStream(httpx.AsyncByteStream):
             await self._body_iterator.aclose()
 
 
-def _stamp_test_id_into_headers(headers: dict[str, str]) -> None:
-    """Stamp the active test's ID into an in-process request's provider-data header.
-
-    Mirrors _inject_test_id in api_recorder.py, which does the same for real HTTP requests
-    in server mode. Doing it here too means the header carries the test ID in both stack
-    modes, so _test_context_from_header_scope() below can derive TEST_CONTEXT the same way
-    regardless of which one is running. A no-op outside an active test context (get_test_context()
-    is None), so normal (non-test) library-client usage is unaffected.
-    """
-    test_id = get_test_context()
-    if not test_id:
-        return
-    keys = ("X-OGX-Provider-Data", "x-ogx-provider-data")
-    existing_key = next((key for key in keys if key in headers), None)
-    provider_data = _parse_existing_provider_data_header(headers[existing_key]) if existing_key else {}
-    provider_data["__test_id"] = test_id
-    headers[existing_key or "X-OGX-Provider-Data"] = json.dumps(provider_data)
-
-
-def _parse_existing_provider_data_header(value: str) -> dict[str, Any]:
-    """Parse an existing X-OGX-Provider-Data header value, tolerating the same malformed
-    input parse_request_provider_data() (request_headers.py) does: missing, invalid JSON, or
-    not a JSON object all fall back to an empty dict rather than raising, since that request
-    context manager would have dropped the header the same way.
-    """
-    if not value:
-        return {}
-    try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError:
-        logger.error("Provider data not encoded as a JSON object; dropping existing header", value=value)
-        return {}
-    if not isinstance(parsed, dict):
-        logger.error("Provider data must be encoded as a JSON object; dropping existing header", value=value)
-        return {}
-    return parsed
-
-
 @contextlib.contextmanager
 def _test_context_from_header_scope() -> Generator[None, None, None]:
     """Derive TEST_CONTEXT from the request's provider data for the duration of the context.
@@ -309,7 +266,7 @@ async def _route_call_in_process(
         keys = ["X-OGX-Provider-Data", "x-ogx-provider-data"]
         if all(key not in request_headers for key in keys):
             request_headers["X-OGX-Provider-Data"] = json.dumps(provider_data)
-    _stamp_test_id_into_headers(request_headers)
+    stamp_test_id_into_headers(request_headers)
 
     with request_provider_data_context(request_headers), _test_context_from_header_scope():
         # Build the body dict from JSON body and/or post_params
@@ -890,7 +847,7 @@ class AsyncOGXAsLibraryClient(AsyncOgxClient):
             keys = ["X-OGX-Provider-Data", "x-ogx-provider-data"]
             if all(key not in request_headers for key in keys):
                 request_headers["X-OGX-Provider-Data"] = json.dumps(self.provider_data)
-        _stamp_test_id_into_headers(request_headers)
+        stamp_test_id_into_headers(request_headers)
 
         # Use context manager for provider data
         with request_provider_data_context(request_headers), _test_context_from_header_scope():
