@@ -17,11 +17,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tests.integration.conftest import (
-    _LIBRARY_CLIENT_ONLY_TEST_PATHS,
-    _SERVER_ONLY_TEST_PATHS,
+from tests.integration.conftest import pytest_collection_modifyitems
+from tests.integration.stack_config import (
+    LIBRARY_CLIENT_ONLY_TEST_PATHS,
+    SERVER_ONLY_TEST_PATHS,
     is_server_stack_config,
-    pytest_collection_modifyitems,
 )
 
 
@@ -42,9 +42,9 @@ class TestIsServerStackConfig:
         assert is_server_stack_config(None) is False
 
 
-def _fake_item(rootpath: Path, rel_path: str) -> MagicMock:
+def _fake_item(rootpath: Path, *rel_parts: str) -> MagicMock:
     item = MagicMock()
-    item.fspath = str(rootpath / rel_path)
+    item.fspath = str(rootpath.joinpath(*rel_parts))
     item.add_marker = MagicMock()
     return item
 
@@ -55,36 +55,32 @@ def _fake_config(rootpath: Path, stack_config: str | None) -> SimpleNamespace:
 
 
 class TestCollectionSkipsTheStackConfigGatedFiles:
-    """The two files _SERVER_ONLY_TEST_PATHS / _LIBRARY_CLIENT_ONLY_TEST_PATHS name are the
+    """The two files SERVER_ONLY_TEST_PATHS / LIBRARY_CLIENT_ONLY_TEST_PATHS name are the
     same ones whose old pytestmark read OGX_TEST_STACK_CONFIG_TYPE."""
 
     def test_server_only_file_is_skipped_in_library_client_mode(self, tmp_path):
-        path = next(iter(_SERVER_ONLY_TEST_PATHS))
-        item = _fake_item(tmp_path, path)
+        item = _fake_item(tmp_path, *next(iter(SERVER_ONLY_TEST_PATHS)))
 
         pytest_collection_modifyitems(_fake_config(tmp_path, "ci-tests"), [item])
 
         item.add_marker.assert_called_once()
 
     def test_server_only_file_runs_in_server_mode(self, tmp_path):
-        path = next(iter(_SERVER_ONLY_TEST_PATHS))
-        item = _fake_item(tmp_path, path)
+        item = _fake_item(tmp_path, *next(iter(SERVER_ONLY_TEST_PATHS)))
 
         pytest_collection_modifyitems(_fake_config(tmp_path, "server:ci-tests"), [item])
 
         item.add_marker.assert_not_called()
 
     def test_library_client_only_file_is_skipped_in_server_mode(self, tmp_path):
-        path = next(iter(_LIBRARY_CLIENT_ONLY_TEST_PATHS))
-        item = _fake_item(tmp_path, path)
+        item = _fake_item(tmp_path, *next(iter(LIBRARY_CLIENT_ONLY_TEST_PATHS)))
 
         pytest_collection_modifyitems(_fake_config(tmp_path, "server:ci-tests"), [item])
 
         item.add_marker.assert_called_once()
 
     def test_library_client_only_file_runs_in_library_client_mode(self, tmp_path):
-        path = next(iter(_LIBRARY_CLIENT_ONLY_TEST_PATHS))
-        item = _fake_item(tmp_path, path)
+        item = _fake_item(tmp_path, *next(iter(LIBRARY_CLIENT_ONLY_TEST_PATHS)))
 
         pytest_collection_modifyitems(_fake_config(tmp_path, "ci-tests"), [item])
 
@@ -95,5 +91,16 @@ class TestCollectionSkipsTheStackConfigGatedFiles:
 
         pytest_collection_modifyitems(_fake_config(tmp_path, "server:ci-tests"), [item])
         pytest_collection_modifyitems(_fake_config(tmp_path, "ci-tests"), [item])
+
+        item.add_marker.assert_not_called()
+
+    def test_an_item_outside_rootpath_is_never_touched(self, tmp_path):
+        """item.fspath.relative_to(rootpath) raises for a path outside rootpath (e.g. a plugin
+        or conftest collected from elsewhere); that must not crash collection."""
+        item = MagicMock()
+        item.fspath = str(tmp_path.parent / "somewhere-else" / "test_unrelated.py")
+        item.add_marker = MagicMock()
+
+        pytest_collection_modifyitems(_fake_config(tmp_path, "server:ci-tests"), [item])
 
         item.add_marker.assert_not_called()

@@ -19,21 +19,10 @@ from ogx.core.stack import run_config_from_dynamic_config_spec
 from ogx.log import get_logger
 from ogx.testing.api_recorder import patch_httpx_for_test_id
 
+from .stack_config import LIBRARY_CLIENT_ONLY_TEST_PATHS, SERVER_ONLY_TEST_PATHS, is_server_stack_config
 from .suites import SETUP_DEFINITIONS, SUITE_DEFINITIONS
 
 logger = get_logger(__name__, category="tests")
-
-
-def is_server_stack_config(stack_config: str | None) -> bool:
-    """Whether a --stack-config value points at a real server process (server:, docker:, or
-    a bare http(s) URL) rather than an in-process library client.
-
-    The single place this distinction is made from the --stack-config string; fixtures with
-    access to `request` should prefer this over duplicating the prefix check, and module-level
-    code that can't see the option at all should use pytest_collection_modifyitems below
-    instead of a hardcoded env var.
-    """
-    return stack_config is not None and stack_config.startswith(("server:", "docker:", "http"))
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -354,11 +343,12 @@ def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
     return True
 
 
-# Paths (relative to the repo root) whose gating needs config.getoption("--stack-config"),
-# unavailable to a module-level `pytestmark = pytest.mark.skipif(...)`. Skipped here instead,
-# once the config is available; see the modules themselves for why each is gated.
-_SERVER_ONLY_TEST_PATHS = {"tests/integration/inspect/test_metrics_endpoint.py"}
-_LIBRARY_CLIENT_ONLY_TEST_PATHS = {"tests/integration/inference/test_inference_store_disabled.py"}
+def _item_rel_parts(item: pytest.Item, rootpath: Path) -> tuple[str, ...] | None:
+    """The item's path relative to rootpath, as parts, or None if it isn't under rootpath."""
+    item_path = Path(item.fspath).resolve()
+    if not item_path.is_relative_to(rootpath):
+        return None
+    return item_path.relative_to(rootpath).parts
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -366,10 +356,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     and skip the handful of tests that are only valid in one stack-config mode."""
     is_server = is_server_stack_config(config.getoption("--stack-config", default=None))
     for item in items:
-        rel_path = str(Path(item.fspath).relative_to(config.rootpath))
-        if rel_path in _SERVER_ONLY_TEST_PATHS and not is_server:
+        rel_parts = _item_rel_parts(item, config.rootpath)
+        if rel_parts in SERVER_ONLY_TEST_PATHS and not is_server:
             item.add_marker(pytest.mark.skip(reason="Only runs against a real server process"))
-        elif rel_path in _LIBRARY_CLIENT_ONLY_TEST_PATHS and is_server:
+        elif rel_parts in LIBRARY_CLIENT_ONLY_TEST_PATHS and is_server:
             item.add_marker(
                 pytest.mark.skip(reason="Boots an in-process library client; cannot run inside a server-mode session")
             )

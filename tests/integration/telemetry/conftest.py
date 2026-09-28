@@ -11,8 +11,8 @@ import os
 import pytest
 
 from ogx.testing.api_recorder import patch_httpx_for_test_id
-from tests.integration.conftest import is_server_stack_config
 from tests.integration.fixtures.common import instantiate_ogx_client
+from tests.integration.stack_config import is_server_stack_config
 from tests.integration.telemetry.collectors import InMemoryTelemetryManager, OtlpHttpTestCollector
 
 

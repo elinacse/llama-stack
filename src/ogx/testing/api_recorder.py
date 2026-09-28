@@ -321,13 +321,14 @@ def normalize_http_request(url: str, method: str, payload: dict[str, Any]) -> st
 def _inject_test_id(request: httpx.Request) -> None:
     """Stamp the current test's ID into the request's provider-data header.
 
-    This is needed for server mode where the test ID must be transported from client to
-    server via HTTP headers, so the server can key recordings/replay and per-test state
-    (see ogx.core.testing_context.sync_test_context_from_provider_data). In library_client
-    mode this is a no-op since everything runs in the same process; the in-process call path
-    stamps the header itself instead, via the same stamp_test_id_into_headers() this
-    delegates to (see ogx.core.library_client), so the two can't drift apart. No-op outside
-    an active test context too (test_id is None), so this is safe to install unconditionally.
+    Installed unconditionally in every stack mode: in server mode the header is how the test
+    ID crosses into the server process, so the server can key recordings/replay and per-test
+    state (see ogx.core.testing_context.sync_test_context_from_provider_data); in library_client
+    mode the header is redundant (the ContextVar stays authoritative in-process, and the
+    in-process call path stamps its own request headers the same way -- see
+    ogx.core.library_client), but harmless, since recording hashes never included headers.
+    Both paths delegate to the same stamp_test_id_into_headers() so they can't drift apart.
+    No-op outside an active test context too (test_id is None).
     """
     test_id = get_test_context()
 
