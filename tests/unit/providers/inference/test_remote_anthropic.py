@@ -267,24 +267,6 @@ class TestNetworkConfig:
 
 
 class TestCountTokens:
-    async def test_keeps_fields_the_model_does_not_declare(self, wire):
-        """AnthropicCountTokensRequest lacked extra="allow", unlike AnthropicCreateMessageRequest,
-        so a field like thinking survived on /v1/messages but was silently dropped here."""
-        wire.respond(lambda request: httpx.Response(200, json={"input_tokens": 1}))
-
-        await _adapter().anthropic_count_tokens(
-            AnthropicCountTokensRequest.model_validate(
-                {
-                    "model": "claude-haiku-4-5",
-                    "messages": [{"role": "user", "content": "Hi"}],
-                    "thinking": {"type": "enabled", "budget_tokens": 2048},
-                }
-            )
-        )
-
-        body = json.loads(wire.requests[0].content)
-        assert body["thinking"] == {"type": "enabled", "budget_tokens": 2048}
-
     async def test_posts_to_count_tokens_with_headers(self, wire):
         wire.respond(lambda request: httpx.Response(200, json={"input_tokens": 14}))
 

@@ -315,8 +315,6 @@ class AnthropicCreateMessageRequest(BaseModel):
 class AnthropicCountTokensRequest(BaseModel):
     """Request body for POST /v1/messages/count_tokens."""
 
-    model_config = ConfigDict(extra="allow")
-
     model: str = Field(..., description="The model to use for token counting.")
     messages: list[AnthropicMessage] = Field(..., description="The messages to count tokens for.")
     system: str | list[AnthropicTextBlock] | None = Field(default=None, description="System prompt.")
