@@ -7,7 +7,7 @@
 
 """Detect stale provider-server pins used for integration test recording.
 
-Recordings are produced against live vLLM, Ollama and llama.cpp servers whose
+Recordings are produced against live vLLM, Ollama, llama.cpp and TEI servers whose
 versions are pinned in the CI setup actions. For each provider this script reads
 the current pin, asks the upstream GitHub repository for its latest release and,
 when the pin is behind, opens an issue (deduplicated by title, which embeds the
@@ -120,6 +120,15 @@ PROVIDERS: tuple[Provider, ...] = (
         pin_sources=(PinSource(".github/actions/setup-llamacpp/action.yml", r"releases/download/(b\d+)/"),),
         location_files=(".github/actions/setup-llamacpp/action.yml",),
         extra_location_pattern=r"LLAMA_TARBALL_SHA=",
+    ),
+    Provider(
+        key="tei",
+        display="TEI",
+        upstream="huggingface/text-embeddings-inference",
+        pin_sources=(
+            PinSource(".github/actions/setup-tei/action.yml", r"text-embeddings-inference:cpu-(\d+(?:\.\d+)+)"),
+        ),
+        location_files=(".github/actions/setup-tei/action.yml",),
     ),
 )
 
@@ -292,6 +301,7 @@ LATEST_RESOLVERS: dict[str, Callable[[GitHubApi, Provider], Latest]] = {
     "vllm": resolve_latest_simple,
     "ollama": resolve_latest_simple,
     "llamacpp": resolve_latest_llamacpp,
+    "tei": resolve_latest_simple,
 }
 
 
@@ -344,6 +354,14 @@ def procedure(result: Result) -> str:
             f"{RE_RECORD_NOTE}\n"
             "3. Rebuild and publish the all-in-one Ollama images from the containerfiles if they are consumed "
             "outside this repository."
+        )
+    if key == "tei":
+        return (
+            "1. Bump the image tag in `.github/actions/setup-tei/action.yml`. Use the `cpu-` suffixed tag "
+            "(e.g. `cpu-1.9.4`); the un-suffixed tags are CUDA builds that require nvidia-smi and fail on "
+            "CPU-only runners.\n"
+            "2. Re-record the `text-embeddings-inference` suite. " + RE_RECORD_NOTE + "\n"
+            "3. Confirm the recordings replay green in CI and note any provider-facing behavior changes."
         )
     sha = latest.tarball_sha256
     sha_line = (

@@ -1,6 +1,6 @@
 name: Check Provider Versions
 
-run-name: Open issues when the vLLM, Ollama or llama.cpp servers we record against have newer releases
+run-name: Open issues when the vLLM, Ollama, llama.cpp or TEI servers we record against have newer releases
 
 on:
   schedule:
