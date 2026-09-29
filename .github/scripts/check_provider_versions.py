@@ -13,6 +13,10 @@ the current pin, asks the upstream GitHub repository for its latest release and,
 when the pin is behind, opens an issue (deduplicated by title, which embeds the
 new version) listing every file and line that must change.
 
+Stale pins are reported as warnings (job summary annotation plus issue) and do
+not fail the run; the run fails only when a check itself errors, so a new
+upstream release never breaks CI.
+
 llama.cpp publishes a semver release (vX.Y.Z) plus a stream of bNNNN build
 prereleases, and our setup action pins a build. The "blessed" build for a
 semver release is the latest bNNNN prerelease published on or before it.
@@ -94,17 +98,8 @@ PROVIDERS: tuple[Provider, ...] = (
         key="vllm",
         display="vLLM",
         upstream="vllm-project/vllm",
-        pin_sources=(
-            PinSource(".github/actions/setup-vllm-gpu/action.yml", _input_default_pattern("vllm-version")),
-            PinSource(".github/actions/setup-vllm/action.yml", r"releases/download/v(\d+(?:\.\d+)+)/vllm-"),
-        ),
-        location_files=(
-            ".github/actions/setup-vllm-gpu/action.yml",
-            ".github/actions/setup-vllm/action.yml",
-            ".github/workflows/launch-gpu-ec2-runner.yml",
-            ".github/workflows/record-vllm-gpu-tests.yml",
-            "docs/gpu-runners.md",
-        ),
+        pin_sources=(PinSource(".github/actions/setup-vllm/action.yml", r'WHEEL_NAME="vllm-(\d+(?:\.\d+)+)'),),
+        location_files=(".github/actions/setup-vllm/action.yml",),
         extra_location_pattern=r"WHEEL_SHA=",
     ),
     Provider(
@@ -197,6 +192,8 @@ class GitHubApi:
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")
             raise RuntimeError(f"Failed to {method} {path}: HTTP {e.code} {detail}") from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"Failed to {method} {path}: {e.reason}") from e
 
 
 def read_current_pin(repo_root: Path, provider: Provider) -> Version:
@@ -324,22 +321,15 @@ RE_RECORD_NOTE = (
 )
 
 
-def procedure(result: Result, repo_root: Path) -> str:
+def procedure(result: Result) -> str:
     key = result.provider.key
     latest = result.latest
     assert latest is not None
     if key == "vllm":
-        if (repo_root / ".github/workflows/record-vllm-gpu-tests.yml").exists():
-            record = (
-                "2. Run the **vLLM GPU Recording** workflow (`record-vllm-gpu-tests.yml`) via workflow dispatch for "
-                "the `base`, `responses` and `vllm-reasoning` suites, passing the PR number so recordings are "
-                "committed back to the PR."
-            )
-        else:
-            record = (
-                "2. The **Integration Tests (Record)** workflow records the `vllm` setup automatically on the PR. "
-                + RE_RECORD_NOTE
-            )
+        record = (
+            "2. The **Integration Tests (Record)** workflow records the `vllm` setup automatically on the PR. "
+            + RE_RECORD_NOTE
+        )
         return (
             "1. Update the version everywhere listed above. If the setup pins a wheel checksum "
             "(`WHEEL_SHA`), recompute it for the new release asset.\n"
@@ -374,7 +364,7 @@ def _code(text: str) -> str:
     return f"`` {text} ``" if "`" in text else f"`{text}`"
 
 
-def render_issue_body(result: Result, repo_root: Path, run_url: str) -> str:
+def render_issue_body(result: Result, run_url: str) -> str:
     latest = result.latest
     assert latest is not None
     rows = [
@@ -394,7 +384,7 @@ def render_issue_body(result: Result, repo_root: Path, run_url: str) -> str:
         f"Integration test recordings are produced against a live {result.provider.display} server, and a newer "
         "upstream release is available.\n\n"
         + "\n".join(rows)
-        + f"\n\n## Where to update\n\n{locations}\n\n## Procedure\n\n{procedure(result, repo_root)}\n\n{footer}\n"
+        + f"\n\n## Where to update\n\n{locations}\n\n## Procedure\n\n{procedure(result)}\n\n{footer}\n"
     )
 
 
@@ -404,7 +394,7 @@ def find_existing_issue(api: GitHubApi, target_repo: str, title: str) -> dict[st
     return next((item for item in found.get("items", []) if item["title"] == title), None)
 
 
-def file_issue(api: GitHubApi, target_repo: str, result: Result, repo_root: Path, run_url: str, dry_run: bool) -> None:
+def file_issue(api: GitHubApi, target_repo: str, result: Result, run_url: str, dry_run: bool) -> None:
     title = issue_title(result)
     existing = find_existing_issue(api, target_repo, title)
     if existing is not None:
@@ -414,7 +404,7 @@ def file_issue(api: GitHubApi, target_repo: str, result: Result, repo_root: Path
     if dry_run:
         result.issue_action = "would create"
         return
-    body = render_issue_body(result, repo_root, run_url)
+    body = render_issue_body(result, run_url)
     created = api.request("POST", f"/repos/{target_repo}/issues", body={"title": title, "body": body})
     result.issue_action = "created"
     result.issue_url = created["html_url"]
@@ -465,7 +455,7 @@ def main(argv: list[str] | None = None) -> int:
         result = check_provider(api, provider, args.repo_root)
         if result.outdated and not result.error:
             try:
-                file_issue(api, args.target_repo, result, args.repo_root, run_url, args.dry_run)
+                file_issue(api, args.target_repo, result, run_url, args.dry_run)
             except RuntimeError as e:
                 result.error = str(e)
         results.append(result)
@@ -476,6 +466,14 @@ def main(argv: list[str] | None = None) -> int:
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as f:
             f.write(summary)
+
+    # A stale pin is a warning, not a failure: the run's job is to tell us what to
+    # upgrade next so we can plan it. Only a broken check fails the run.
+    for result in results:
+        if result.outdated and not result.error:
+            print(
+                f"::warning::{result.provider.display} pin {current_label(result)} is behind upstream {latest_label(result)}"
+            )
 
     failed = [result for result in results if result.error]
     for result in failed:

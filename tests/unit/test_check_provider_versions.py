@@ -77,31 +77,15 @@ class TestVersions:
 
 
 class TestReadCurrentPin:
-    def test_vllm_gpu_action_default(self, tmp_path):
-        _write(
-            tmp_path,
-            ".github/actions/setup-vllm-gpu/action.yml",
-            """\
-            inputs:
-              quantization:
-                default: 'none'
-              vllm-version:
-                description: 'vLLM version to install'
-                required: false
-                default: '0.22.1'
-              port:
-                default: '8000'
-            """,
-        )
-        assert _mod.read_current_pin(tmp_path, PROVIDERS["vllm"]).label == "0.22.1"
-
-    def test_vllm_falls_back_to_native_cpu_wheel(self, tmp_path):
+    def test_vllm_native_cpu_wheel_name(self, tmp_path):
+        """Mirrors the real setup-vllm action, where the wheel name is a variable."""
         _write(
             tmp_path,
             ".github/actions/setup-vllm/action.yml",
             """\
             run: |
-              curl -o w "https://github.com/vllm-project/vllm/releases/download/v0.22.1/vllm-0.22.1+cpu.whl"
+              WHEEL_NAME="vllm-0.22.1+cpu-cp38-abi3-manylinux_2_34_x86_64.whl"
+              curl -o w "https://github.com/vllm-project/vllm/releases/download/v0.22.1/$WHEEL_NAME"
             """,
         )
         assert _mod.read_current_pin(tmp_path, PROVIDERS["vllm"]).label == "0.22.1"
@@ -142,7 +126,7 @@ class TestFindLocations:
     def test_matches_whole_versions_only(self, tmp_path):
         _write(
             tmp_path,
-            "docs/gpu-runners.md",
+            ".github/actions/setup-vllm/action.yml",
             """\
             vLLM 0.22.1 is installed
             unrelated 10.22.1 and 0.22.10
@@ -150,7 +134,7 @@ class TestFindLocations:
         )
         provider = PROVIDERS["vllm"]
         locations = _mod.find_locations(tmp_path, provider, _mod.parse_version("0.22.1"))
-        assert [(loc.path, loc.line) for loc in locations] == [("docs/gpu-runners.md", 1)]
+        assert [(loc.path, loc.line) for loc in locations] == [(".github/actions/setup-vllm/action.yml", 1)]
 
     def test_includes_checksum_lines(self, tmp_path):
         _write(
@@ -229,7 +213,7 @@ class TestIssueRendering:
         result.current = _mod.parse_version("0.22.1")
         result.latest = _mod.Latest(_mod.parse_version("0.30.0"), "https://example/v0.30.0", "2026-09-22T05:20:54Z")
         result.locations = [_mod.Location("docs/x.md", 7, "uses `/tmp/env` from 0.22.1")]
-        body = _mod.render_issue_body(result, REPO_ROOT, "https://example/run")
+        body = _mod.render_issue_body(result, "https://example/run")
         assert "`docs/x.md:7`" in body
         assert "`` uses `/tmp/env` from 0.22.1 ``" in body
         assert "[v0.30.0](https://example/v0.30.0)" in body
@@ -269,6 +253,14 @@ class TestMain:
         assert self._run() == 0
         assert len(api.created) == 3
         assert "exists" in capsys.readouterr().out
+
+    def test_outdated_pins_warn_but_do_not_fail_the_run(self, api, capsys):
+        """A newer upstream release must not fail CI; it only needs to warn us to plan the upgrade."""
+        assert self._run() == 0
+        out = capsys.readouterr().out
+        for name in ("vLLM", "Ollama", "llama.cpp"):
+            assert f"::warning::{name} pin" in out
+        assert "::error::" not in out
 
     def test_dry_run_creates_nothing(self, api, capsys):
         assert self._run("--dry-run") == 0
