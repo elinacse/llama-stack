@@ -78,15 +78,26 @@ jobs:
           curl -fsSL https://claude.ai/install.sh | bash -s -- "${CLI_VERSION}"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+      # Install the SDK in its own venv instead of the project venv: installing it
+      # there makes uv re-resolve the SDK's dependencies and bump shared packages
+      # (e.g. mcp) past the versions in uv.lock, which can break the OGX server the
+      # smoke tests start. Layering the two site-packages with the project venv
+      # first keeps the server and test harness on the locked dependency set while
+      # the newest claude_agent_sdk package itself comes from the SDK venv.
       - name: Install Claude Agent SDK
         env:
           SDK_VERSION: ${{ inputs.agent-sdk-version }}
         run: |
+          SDK_VENV="${RUNNER_TEMP}/claude-agent-sdk-venv"
+          uv venv "${SDK_VENV}"
           if [ -n "${SDK_VERSION}" ]; then
-            uv pip install "claude-agent-sdk==${SDK_VERSION}"
+            uv pip install --python "${SDK_VENV}" "claude-agent-sdk==${SDK_VERSION}"
           else
-            uv pip install --upgrade claude-agent-sdk
+            uv pip install --python "${SDK_VENV}" --upgrade claude-agent-sdk
           fi
+          project_site=$(uv run --no-sync python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
+          sdk_site=$("${SDK_VENV}/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
+          echo "PYTHONPATH=${project_site}:${sdk_site}" >> "$GITHUB_ENV"
 
       # Nothing above is pinned ahead of time, so this is where we find out what actually got
       # installed: the log, an annotation on the run page, and the job summary. When an exact
