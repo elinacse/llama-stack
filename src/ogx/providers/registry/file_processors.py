@@ -23,8 +23,7 @@ def available_providers() -> list[ProviderSpec]:
             api=Api.file_processors,
             provider_type="inline::auto",
             execution_mode="worker",
-            # pypdf ceiling: see the pyproject.toml pypdf entries (#6596).
-            pip_packages=["chardet", "pypdf>=6.13.0,<6.16.2", "markitdown[all]"],
+            pip_packages=["chardet", "pypdf>=6.16.2", "markitdown[all]"],
             module="ogx.providers.inline.file_processor.auto",
             config_class="ogx.providers.inline.file_processor.auto.AutoFileProcessorConfig",
             api_dependencies=[Api.files],
@@ -40,8 +39,7 @@ def available_providers() -> list[ProviderSpec]:
             api=Api.file_processors,
             provider_type="inline::pypdf",
             execution_mode="worker",
-            # pypdf ceiling: see the pyproject.toml pypdf entries (#6596).
-            pip_packages=["chardet", "pypdf>=6.13.0,<6.16.2"],
+            pip_packages=["chardet", "pypdf>=6.16.2"],
             module="ogx.providers.inline.file_processor.pypdf",
             config_class="ogx.providers.inline.file_processor.pypdf.PyPDFFileProcessorConfig",
             api_dependencies=[Api.files],
