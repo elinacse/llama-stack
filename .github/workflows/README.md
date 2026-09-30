@@ -6,6 +6,7 @@ OGX uses GitHub Actions for Continuous Integration (CI). Below is a table detail
 | ---- | ---- | ------- |
 | Backward Compatibility Check | [backward-compat.yml](backward-compat.yml) | Check backward compatibility for config.yaml files |
 | Build Distribution Images | [build-distributions.yml](build-distributions.yml) | Build Distribution Images |
+| Check Provider Versions | [check-provider-versions.yml](check-provider-versions.yml) | Open issues when the vLLM, Ollama, llama.cpp or TEI servers we record against have newer releases |
 | CI Status | [ci-status.yml](ci-status.yml) | Aggregate CI check status |
 | CodeQL Workflow Security Scan | [codeql.yml](codeql.yml) | CodeQL Workflow Security Scan |
 | Commit Constraint Updates | [commit-constraint-updates.yml](commit-constraint-updates.yml) | Commit Constraint Updates |
@@ -18,7 +19,7 @@ OGX uses GitHub Actions for Continuous Integration (CI). Below is a table detail
 | Integration Responses, Conversations & Prompts Auth Tests | [integration-responses-conversations-auth-tests.yml](integration-responses-conversations-auth-tests.yml) | Run responses, conversations, and prompts auth tests with Kubernetes authentication |
 | SqlStore Integration Tests | [integration-sql-store-tests.yml](integration-sql-store-tests.yml) | Run the integration test suite with SqlStore |
 | Responses API - Codex CLI Smoke Test | [integration-tests-codex-cli.yml](integration-tests-codex-cli.yml) | Manually drive the real Codex CLI against /v1/responses |
-| Messages API - Claude Code Client Smoke Tests | [integration-tests-messages-clients.yml](integration-tests-messages-clients.yml) | Drive the Claude Code CLI and Agent SDK against /v1/messages (live, Ollama) |
+| Messages API - Claude Code Client Smoke Tests | [integration-tests-messages-clients.yml](integration-tests-messages-clients.yml) | Drive the latest Claude Code CLI and Agent SDK against /v1/messages (live, Ollama) |
 | Integration Tests (Replay) | [integration-tests.yml](integration-tests.yml) | Run the integration test suites from tests/integration in replay mode |
 | Vector IO Integration Tests | [integration-vector-io-tests.yml](integration-vector-io-tests.yml) | Run the integration test suite with various VectorIO providers |
 | OpenAPI Generator SDK Validation | [openapi-generator-validation.yml](openapi-generator-validation.yml) | Validate OpenAPI Generator SDK generation |
