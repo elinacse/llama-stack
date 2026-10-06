@@ -39,7 +39,7 @@ runs:
         }
 
         if [ "$SUITE" == "vision" ]; then
-          pull_model "llama3.2-vision:11b"
+          pull_model "qwen3-vl:2b"
           pull_model "nomic-embed-text:v1.5"
         elif [ "$SETUP" == "ollama-reasoning" ]; then
           pull_model "deepseek-r1:1.5b"

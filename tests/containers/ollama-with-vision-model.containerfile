@@ -7,7 +7,7 @@ FROM --platform=linux/amd64 ollama/ollama:0.35.1
 # Start ollama and pull models in a single layer
 RUN ollama serve & \
     sleep 5 && \
-    ollama pull llama3.2-vision:11b && \
+    ollama pull qwen3-vl:2b && \
     ollama pull nomic-embed-text:v1.5
 
 # Set the entrypoint to start ollama serve
