@@ -74,16 +74,17 @@ runs:
         # setsid + nohup fully detach the server from this step's process group so it
         # keeps running after the step's shell exits (unlike a plain `&`). The weights
         # are served from the hash-verified local directory, so HF is never contacted.
+        #
+        # KNOWN BUG: while --reasoning-parser is set, vLLM silently ignores structured
+        # outputs on /v1/completions (vllm-project/vllm#57726).
+        # test_openai_completion_guided_choice skips on vllm because of this; drop the
+        # flag (and the skip) once the fix is in the pinned release.
         HF_HUB_OFFLINE=1 setsid nohup "$WORKDIR/venv/bin/vllm" serve "$WORKDIR/models/Qwen3-0.6B" \
           --host 127.0.0.1 \
           --port "$PORT" \
           --served-model-name Qwen/Qwen3-0.6B \
           --enable-auto-tool-choice \
           --tool-call-parser hermes \
-          # KNOWN BUG: while a --reasoning-parser is set, vLLM silently ignores
-          # structured outputs on /v1/completions (vllm-project/vllm#57726).
-          # test_openai_completion_guided_choice skips on vllm because of this;
-          # drop the flag (and the skip) once the fix is in the pinned release.
           --reasoning-parser deepseek_r1 \
           --max-model-len 8192 \
           --gpu-memory-utilization 0.5 \
