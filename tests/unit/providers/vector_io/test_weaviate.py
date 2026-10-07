@@ -11,9 +11,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from ogx.providers.remote.vector_io.weaviate import weaviate as weaviate_module
-from ogx.providers.remote.vector_io.weaviate.weaviate import WeaviateIndex
+from ogx.providers.remote.vector_io.weaviate.config import WeaviateVectorIOConfig
+from ogx.providers.remote.vector_io.weaviate.weaviate import WeaviateIndex, WeaviateVectorIOAdapter
 from ogx.providers.utils.memory.vector_store import ChunkForDeletion
-from ogx_api import ChunkMetadata, EmbeddedChunk
+from ogx_api import ChunkMetadata, EmbeddedChunk, VectorStore
 
 # These tests stay database-free: they check the objects handed to the Weaviate
 # client. Weaviate batch imports overwrite an existing object that has the same
@@ -139,3 +140,70 @@ async def test_delete_without_chunk_ids_drops_the_collection(index_and_collectio
     await index.delete()
 
     index.client.collections.delete.assert_called_once_with(index.collection_name)
+
+
+async def test_delete_with_empty_chunk_ids_is_a_noop(index_and_collection):
+    """Filter.contains_any([]) raises WeaviateInvalidInputError (verified against a real
+    Weaviate 1.27.1 server) rather than matching nothing, so an empty list must short-circuit
+    before reaching the client."""
+    index, collection = index_and_collection
+
+    await index.delete(chunk_ids=[])
+
+    collection.data.delete_many.assert_not_called()
+
+
+async def test_delete_chunks_with_empty_list_is_a_noop(index_and_collection):
+    index, collection = index_and_collection
+
+    await index.delete_chunks([])
+
+    collection.data.delete_many.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# register_vector_store chunk_id tokenization regression test
+# See: community review of #6710 on PR #6715.
+#
+# chunk_id was left undeclared, so Weaviate's auto-schema gives it the default "word"
+# tokenization, which splits on non-alphanumeric characters: "doc-1_1" and "doc-1_2" both
+# tokenize to include "doc" and "1". Verified against a real Weaviate 1.27.1 server that this
+# makes delete()/delete_chunks()'s contains_any filter over-match -- deleting "doc-1_1" also
+# deleted "doc-1_2" -- and that declaring chunk_id with FIELD (exact) tokenization fixes it.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def property_mock(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Patches the module-level Property constructor so its call kwargs can be asserted on
+    directly (the same reasoning as the data_object fixture above: whether the real weaviate
+    package or the test_vector_store_kvstore_persistence.py stub is loaded, Property() calls
+    land on this mock either way, so inspecting call_args_list is robust to either)."""
+    mock = MagicMock(name="Property")
+    monkeypatch.setattr(weaviate_module.wvc.config, "Property", mock)
+    return mock
+
+
+@pytest.fixture
+def weaviate_adapter(monkeypatch: pytest.MonkeyPatch) -> tuple[WeaviateVectorIOAdapter, MagicMock]:
+    client = MagicMock()
+    client.collections.exists.return_value = False
+    adapter = WeaviateVectorIOAdapter(config=WeaviateVectorIOConfig(), inference_api=MagicMock(), files_api=None)
+    monkeypatch.setattr(adapter, "_get_client", lambda: client)
+    return adapter, client
+
+
+async def test_register_vector_store_declares_chunk_id_with_field_tokenization(property_mock, weaviate_adapter):
+    adapter, _ = weaviate_adapter
+
+    await adapter.register_vector_store(
+        VectorStore(
+            identifier="test-store",
+            provider_id="weaviate",
+            embedding_model="test-model",
+            embedding_dimension=3,
+        )
+    )
+
+    chunk_id_call = next(call for call in property_mock.call_args_list if call.kwargs.get("name") == "chunk_id")
+    assert chunk_id_call.kwargs["tokenization"] == weaviate_module.wvc.config.Tokenization.FIELD
