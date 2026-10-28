@@ -67,13 +67,13 @@ class CompactionConfig(BaseModel):
         description="Default token threshold for auto-compaction via context_management. If set, conversations exceeding this token count will be automatically compacted.",
     )
     summary_max_output_tokens: int | None = Field(
-        default=1024,
+        default=None,
         ge=1,
         description=(
-            "Maximum output tokens for the compaction summarization call itself. This is "
-            "independent of the triggering response's own max_output_tokens -- the summary "
-            "is internal housekeeping, not part of the answer the caller asked for, so it "
-            "must not be capped by (or eat into) the caller's own output budget."
+            "Maximum output tokens for the compaction summarization call itself, independent "
+            "of the triggering response's own max_output_tokens. Unset by default (the "
+            "provider's own default applies), since reasoning models can need several "
+            "thousand thinking tokens to produce a summary."
         ),
     )
     tokenizer_encoding: str | None = Field(

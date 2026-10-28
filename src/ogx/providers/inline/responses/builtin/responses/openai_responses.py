@@ -43,8 +43,10 @@ from ogx_api import (
     ConflictError,
     Connectors,
     ConversationItem,
+    ConversationNotFoundError,
     CreateResponseRequest,
     Files,
+    GetConversationRequest,
     GetPromptRequest,
     Inference,
     InternalServerError,
@@ -138,7 +140,6 @@ class _CompactionResult:
     output_items: list[OpenAIResponseInput]
     compaction_item: OpenAIResponseCompaction
     usage: OpenAIResponseUsage
-    chat_usage: OpenAIChatCompletionUsage | None
 
 
 class OpenAIResponsesImpl:
@@ -422,6 +423,20 @@ class OpenAIResponsesImpl:
             stored_messages = await self.responses_store.get_conversation_messages(conversation)
             all_input = input
             if stored_messages:
+                # The stored message cache outlives conversation deletion (deleting a
+                # conversation does not clear it, and the core Conversations provider
+                # has no dependency on this Responses-specific cache table to clean it
+                # up itself), so skipping the raw item log here would otherwise let a
+                # turn on a deleted conversation proceed -- sending its retained
+                # history to the model, and even storing a new response, before
+                # anything notices. A single-row existence check is cheap enough to
+                # always keep, unlike the full paginated item fetch; a failure also
+                # opportunistically clears the now-orphaned cache row.
+                try:
+                    await self.conversations_api.get_conversation(GetConversationRequest(conversation_id=conversation))
+                except ConversationNotFoundError:
+                    await self.responses_store.delete_conversation_messages(conversation)
+                    raise
                 messages_for_compaction = list(stored_messages)
                 messages = stored_messages or []
                 new_messages = await convert_response_input_to_chat_messages(
@@ -1503,7 +1518,6 @@ class OpenAIResponsesImpl:
                 stream_options=request.stream_options,
                 extra_body=extra_body,
                 initial_usage=summary_usage,
-                pending_compaction_item=compaction_item,
             )
 
             final_response = None
@@ -1517,18 +1531,6 @@ class OpenAIResponsesImpl:
             incremental = bool(request.previous_response_id) and not compacted_history_applied
             if incremental:
                 input_items_for_storage = self._prepare_input_items_for_storage(request.input)
-            elif compacted_history_applied:
-                # The compaction item is already surfaced as this response's own
-                # output[0] (via pending_compaction_item above); storing it a second
-                # time in .input would make the *next* previous_response_id turn's
-                # history (= previous.input + previous.output) contain it twice,
-                # double-counting its tokens and re-summarizing it twice on the next
-                # compaction.
-                assert isinstance(all_input, list)
-                stored_input: list[OpenAIResponseInput] = [
-                    item for item in all_input if not isinstance(item, OpenAIResponseCompaction)
-                ]
-                input_items_for_storage = self._prepare_input_items_for_storage(stored_input)
             else:
                 input_items_for_storage = self._prepare_input_items_for_storage(all_input)
 
@@ -1594,15 +1596,18 @@ class OpenAIResponsesImpl:
         extra_body: dict | None = None,
         max_output_tokens: int | None = None,
         messages_override: list[OpenAIMessageParam] | None = None,
-    ) -> _CompactionResult | None:
+    ) -> tuple[_CompactionResult | None, OpenAIChatCompletionUsage | None]:
         """Summarize items_to_compact into a compaction item, with no storage side
         effects -- callers decide whether/how to persist the result.
 
         messages_override, when given, is used in place of messages derived from
         items_to_compact (e.g. a caller that already has the full chat-message history
-        on hand). Returns None, rather than a hollow result, if the summarization call
-        produces an empty summary, so each caller can decide for itself whether that's
-        an error or something to fall back from.
+        on hand). Returns (None, chat_usage), rather than a hollow result, if the
+        summarization call produces an empty summary, so each caller can decide for
+        itself whether that's an error or something to fall back from -- but the call
+        still happened and used real tokens, so chat_usage is always returned
+        regardless, letting a caller that falls back still account for that cost
+        instead of silently dropping it.
         """
         if messages_override is not None:
             messages = messages_override
@@ -1632,6 +1637,7 @@ class OpenAIResponsesImpl:
         )
         completion = await self.inference_api.openai_chat_completion(params)
         assert not isinstance(completion, AsyncIterator)
+        chat_usage = completion.usage
 
         # Extract summary text from the completion
         summary_text = ""
@@ -1640,19 +1646,22 @@ class OpenAIResponsesImpl:
             choice = completion.choices[0]
             if choice.message and choice.message.content:
                 summary_text = choice.message.content
-        if not summary_text.strip():
-            return None
+
         if choice is not None and choice.finish_reason == "length":
-            # Truncated mid-thought by max_output_tokens (the summary's own cap --
-            # see CompactionConfig.summary_max_output_tokens -- not the triggering
-            # response's). Unlike an empty summary, a truncated-but-nonempty one is
-            # still usable and is kept rather than failed/discarded, but it may be
-            # missing context the model needed, so this is worth surfacing to admins
-            # tuning that cap.
+            # Truncated by max_output_tokens (the summary's own cap -- see
+            # CompactionConfig.summary_max_output_tokens -- not the triggering
+            # response's), checked before the empty-summary return below so a
+            # reasoning model that spends its whole cap thinking, and never writes a
+            # summary, is distinguishable from any other empty-summary cause.
             logger.warning(
-                "Compaction summary was truncated by its own output token cap",
+                "Compaction summary call hit its own output token cap before producing any content"
+                if not summary_text.strip()
+                else "Compaction summary was truncated by its own output token cap",
                 model=summarization_model,
             )
+
+        if not summary_text.strip():
+            return None, chat_usage
 
         # Extract user messages from input (matching OpenAI behavior: all user messages verbatim)
         output_items: list[OpenAIResponseInput] = []
@@ -1674,6 +1683,25 @@ class OpenAIResponsesImpl:
                     )
                 )
 
+        if not output_items and messages_override is not None:
+            # items_to_compact is empty on the conversation= path (that mode compacts
+            # from messages_override, not items -- see _maybe_auto_compact), which
+            # would otherwise silently drop the "keep every user message verbatim"
+            # behavior above for that path only -- previous_response_id still gets it.
+            # Only plain string content is reconstructed here; a user message with
+            # multi-part content (image/file parts) is skipped rather than guessed at.
+            for msg in messages_override:
+                if isinstance(msg, OpenAIUserMessageParam) and isinstance(msg.content, str):
+                    output_items.append(
+                        OpenAIResponseMessage(
+                            id=f"msg_{uuid.uuid4().hex[:24]}",
+                            type="message",
+                            status="completed",
+                            role="user",
+                            content=[OpenAIResponseInputMessageContentText(text=msg.content)],
+                        )
+                    )
+
         # Prepend the summary prefix to frame the summary as a handoff
         if self.compaction_config.summary_prefix:
             summary_text = f"{self.compaction_config.summary_prefix}\n{summary_text}"
@@ -1686,7 +1714,6 @@ class OpenAIResponsesImpl:
         output_items.append(compaction_item)
 
         # Build usage from completion
-        chat_usage = completion.usage
         usage_data = OpenAIResponseUsage(
             input_tokens=chat_usage.prompt_tokens if chat_usage else 0,
             output_tokens=chat_usage.completion_tokens if chat_usage else 0,
@@ -1707,11 +1734,13 @@ class OpenAIResponsesImpl:
             ),
         )
 
-        return _CompactionResult(
-            output_items=output_items,
-            compaction_item=compaction_item,
-            usage=usage_data,
-            chat_usage=chat_usage,
+        return (
+            _CompactionResult(
+                output_items=output_items,
+                compaction_item=compaction_item,
+                usage=usage_data,
+            ),
+            chat_usage,
         )
 
     async def compact_openai_response(
@@ -1756,6 +1785,16 @@ class OpenAIResponsesImpl:
                 "input, previous_response_id", None, "Either 'input' or 'previous_response_id' must be provided."
             )
 
+        # max_output_tokens arrives through CompactResponseRequest's extra="allow" catch-all
+        # (see impl.py's wrapper), so it reaches here as whatever the caller sent, untyped and
+        # unvalidated -- failing it here, under its own name, is clearer than letting a bad
+        # value surface later as a validation error naming the internal
+        # OpenAIChatCompletionRequestWithExtraBody.max_completion_tokens field instead.
+        if max_output_tokens is None:
+            max_output_tokens = self.compaction_config.summary_max_output_tokens
+        elif isinstance(max_output_tokens, bool) or not isinstance(max_output_tokens, int) or max_output_tokens < 1:
+            raise InvalidParameterError("max_output_tokens", max_output_tokens, "Must be a positive integer.")
+
         messages_override = None
         if resolved_messages is not None:
             messages_override = resolved_messages
@@ -1767,7 +1806,7 @@ class OpenAIResponsesImpl:
                 )
                 messages_override.extend(new_messages)
 
-        result = await self._build_compaction(
+        result, _chat_usage = await self._build_compaction(
             model,
             all_input,
             instructions=instructions,
@@ -1991,6 +2030,35 @@ class OpenAIResponsesImpl:
                     )
         return open_calls
 
+    @staticmethod
+    def _drop_open_tool_calls_from_messages(
+        messages: list[OpenAIMessageParam], new_input: list[OpenAIResponseInput]
+    ) -> list[OpenAIMessageParam]:
+        """Strip tool_calls that new_input is about to answer from messages, so the
+        summarization call's own message history never ends on a dangling tool_calls
+        message with no reply -- some backends (OpenAI) reject that outright. The
+        open call itself still reaches the final compacted input via
+        _open_calls_from_messages; this only concerns what the summarizer sees.
+        """
+        pending_call_ids = {
+            item.call_id for item in new_input if isinstance(item, OpenAIResponseInputFunctionToolCallOutput)
+        }
+        if not pending_call_ids:
+            return messages
+        filtered: list[OpenAIMessageParam] = []
+        for message in messages:
+            tool_calls = getattr(message, "tool_calls", None)
+            if not tool_calls:
+                filtered.append(message)
+                continue
+            remaining = [tc for tc in tool_calls if tc.id not in pending_call_ids]
+            if len(remaining) == len(tool_calls):
+                filtered.append(message)
+            elif remaining or getattr(message, "content", None):
+                filtered.append(message.model_copy(update={"tool_calls": remaining or None}))
+            # else: the message had only pending tool_calls and no content -- drop it.
+        return filtered
+
     async def _maybe_auto_compact(
         self,
         history: list[OpenAIResponseInput],
@@ -2050,27 +2118,43 @@ class OpenAIResponsesImpl:
             if token_count > threshold:
                 logger.debug("Auto-compacting", token_count=token_count, threshold=threshold)
                 compactable_history, open_calls = self._split_open_tool_calls(history, new_input)
+                summarizer_messages = messages_for_compaction
                 if messages_for_compaction is not None:
                     open_calls = open_calls + self._open_calls_from_messages(messages_for_compaction, new_input)
-                result = await self._build_compaction(
-                    model,
-                    compactable_history,
-                    instructions=instructions,
-                    extra_body=extra_body,
-                    # The summary is internal housekeeping, not part of the answer the
-                    # caller asked for -- it must have its own cap, never the answer's
-                    # own max_output_tokens (see CompactionConfig.summary_max_output_tokens).
-                    max_output_tokens=self.compaction_config.summary_max_output_tokens,
-                    messages_override=messages_for_compaction,
-                )
+                    summarizer_messages = self._drop_open_tool_calls_from_messages(messages_for_compaction, new_input)
+                try:
+                    result, chat_usage = await self._build_compaction(
+                        model,
+                        compactable_history,
+                        instructions=instructions,
+                        extra_body=extra_body,
+                        # The summary is internal housekeeping, not part of the answer the
+                        # caller asked for -- it must have its own cap, never the answer's
+                        # own max_output_tokens (see CompactionConfig.summary_max_output_tokens).
+                        max_output_tokens=self.compaction_config.summary_max_output_tokens,
+                        messages_override=summarizer_messages,
+                    )
+                except Exception:
+                    # The summarization call is exactly the kind of call most likely to
+                    # hit its own failure modes (e.g. the summary model's own context
+                    # limit, given a large enough history) -- falling back to the
+                    # original, uncompacted history keeps this turn working rather than
+                    # failing it outright for an internal-housekeeping call.
+                    logger.warning(
+                        "Auto-compaction summarization call failed; keeping original history",
+                        token_count=token_count,
+                        threshold=threshold,
+                        exc_info=True,
+                    )
+                    return history + new_input, None, None
                 if result is None:
                     logger.warning(
                         "Auto-compaction produced an empty summary; keeping original history",
                         token_count=token_count,
                         threshold=threshold,
                     )
-                    return history + new_input, None, None
-                return result.output_items + open_calls + new_input, result.compaction_item, result.chat_usage
+                    return history + new_input, None, chat_usage
+                return result.output_items + open_calls + new_input, result.compaction_item, chat_usage
 
         return history + new_input, None, None
 

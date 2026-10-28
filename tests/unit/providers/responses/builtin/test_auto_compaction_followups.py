@@ -20,11 +20,8 @@ from unittest.mock import AsyncMock
 from ogx_api import OpenAIAssistantMessageParam, OpenAIUserMessageParam
 from ogx_api.inference import OpenAIChatCompletionToolCall, OpenAIChatCompletionToolCallFunction
 from ogx_api.openai_responses import (
-    OpenAIResponseCompaction,
     OpenAIResponseInputFunctionToolCallOutput,
     OpenAIResponseMessage,
-    OpenAIResponseObjectStreamResponseOutputItemAdded,
-    OpenAIResponseObjectStreamResponseOutputItemDone,
     OpenAIResponseOutputMessageFunctionToolCall,
 )
 from ogx_api.responses.models import CreateResponseRequest
@@ -347,101 +344,16 @@ class TestConversationModeCompactionStaysBounded:
         assert len(compaction_call.args[0].messages) == 4
 
 
-class TestCompactionItemNotDuplicatedInNextHistory:
-    """Code review of #6838: a compacting turn stored the compaction item in BOTH its
-    own .input (as the last element of the compacted history) and its .output
-    (surfaced as output[0]) -- so the next previous_response_id turn's history
-    (previous.input + previous.output, _process_input_with_previous_response) counted
-    it twice: double-counting its tokens, re-summarizing it twice on the next
-    compaction, and listing it twice via the input_items endpoint.
-    """
-
-    async def test_compacting_turn_does_not_store_the_compaction_item_in_its_own_input(
-        self, openai_responses_impl, mock_inference_api, mock_responses_store
-    ):
-        mock_responses_store.get_response_object.return_value = _previous_response()
-        mock_inference_api.openai_chat_completion = _dual_inference_mock()
-
-        result = await openai_responses_impl.create_openai_response(
-            CreateResponseRequest(
-                input="What is the code word?",
-                model="meta-llama/Llama-3.1-8B-Instruct",
-                previous_response_id="resp-previous-123",
-                context_management=[{"type": "compaction", "compact_threshold": 1}],
-            )
-        )
-
-        assert isinstance(result.output[0], OpenAIResponseCompaction)
-
-        final_store_call = next(
-            call
-            for call in mock_responses_store.upsert_response_object.call_args_list
-            if call.kwargs["response_object"].status == "completed"
-        )
-        stored_input = final_store_call.kwargs["input"]
-        assert not any(isinstance(item, OpenAIResponseCompaction) for item in stored_input)
-
-
 class TestAutoCompactionEndToEndFollowups:
-    """Streaming-events and multi-turn chaining checks requested in code review of
-    #6838's Test Plan section, exercising the real streaming path and a second
-    previous_response_id turn built on a compacting one -- not just the final
-    response object a single call produces.
+    """Multi-turn chaining check requested in code review of #6838's Test Plan
+    section, exercising a second previous_response_id turn built on a compacting
+    one -- not just the final response object a single call produces.
     """
-
-    async def test_streaming_events_surface_the_compaction_item(
-        self, openai_responses_impl, mock_inference_api, mock_responses_store
-    ):
-        """Point 9, streaming variant: a non-streaming client only ever sees the final
-        response.output (covered above), but a streaming client needs the
-        response.output_item.added/done events for the compaction item itself -- and
-        needs to see them before any event for the actual answer, matching the
-        ordering guarantee tested directly against _maybe_auto_compact.
-        """
-
-        mock_responses_store.get_response_object.return_value = _previous_response()
-        mock_inference_api.openai_chat_completion = _dual_inference_mock()
-
-        stream = await openai_responses_impl.create_openai_response(
-            CreateResponseRequest(
-                input="What is the code word?",
-                model="meta-llama/Llama-3.1-8B-Instruct",
-                previous_response_id="resp-previous-123",
-                context_management=[{"type": "compaction", "compact_threshold": 1}],
-                stream=True,
-            )
-        )
-
-        events = [chunk async for chunk in stream]
-        added_index = next(
-            i
-            for i, e in enumerate(events)
-            if isinstance(e, OpenAIResponseObjectStreamResponseOutputItemAdded)
-            and isinstance(e.item, OpenAIResponseCompaction)
-        )
-        done_index = next(
-            i
-            for i, e in enumerate(events)
-            if isinstance(e, OpenAIResponseObjectStreamResponseOutputItemDone)
-            and isinstance(e.item, OpenAIResponseCompaction)
-        )
-        assert added_index < done_index
-        # No other output item (e.g. the actual answer) may be added before the
-        # compaction item's own added/done pair.
-        other_output_item_indices = [
-            i
-            for i, e in enumerate(events)
-            if isinstance(e, OpenAIResponseObjectStreamResponseOutputItemAdded)
-            and not isinstance(e.item, OpenAIResponseCompaction)
-        ]
-        assert all(i > done_index for i in other_output_item_indices)
 
     async def test_previous_response_id_chains_correctly_across_two_compacting_turns(
         self, openai_responses_impl, mock_inference_api, mock_responses_store
     ):
-        """End-to-end chaining check tying together points 4 and the follow-up fix for
-        the compaction item being double-counted in the next turn's history
-        (TestCompactionItemNotDuplicatedInNextHistory): build on a response that
+        """End-to-end chaining check tying together point 4: build on a response that
         itself compacted, and confirm the second turn still only summarizes its
         history once, not twice.
         """
@@ -456,7 +368,6 @@ class TestAutoCompactionEndToEndFollowups:
                 context_management=[{"type": "compaction", "compact_threshold": 1}],
             )
         )
-        assert isinstance(first_result.output[0], OpenAIResponseCompaction)
 
         # Capture what the first (compacting) turn actually stored, and feed it back
         # as the second turn's previous_response -- mirroring how get_response_object

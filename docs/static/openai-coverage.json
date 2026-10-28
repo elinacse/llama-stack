@@ -1345,7 +1345,7 @@
                 {
                   "property": "POST.responses.200.content.application/json.properties.output.items",
                   "details": [
-                    "Union variants added: 9",
+                    "Union variants added: 8",
                     "Union variants removed: 4"
                   ]
                 },
@@ -1378,7 +1378,7 @@
                 {
                   "property": "POST.responses.200.content.application/json.properties.output.items",
                   "details": [
-                    "Union variants added: 3"
+                    "Union variants added: 4"
                   ]
                 }
               ],

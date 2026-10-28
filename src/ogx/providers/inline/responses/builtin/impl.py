@@ -205,16 +205,11 @@ class BuiltinResponsesImpl(Responses):
         request: CompactResponseRequest,
     ) -> OpenAICompactedResponse:
         assert self.openai_responses_impl is not None, "OpenAI responses not initialized"
-        # CompactResponseRequest has no typed extra_body/max_output_tokens fields, only
-        # the extra="allow" catch-all (request.model_extra). Unlike CreateResponseRequest,
-        # whose own extra_body is reached the same way (model_extra.get("extra_body")) and
-        # never spreads model_extra wholesale, treat model_extra the same way here: only a
-        # nested "extra_body" key gets spread into the summarization call, and
-        # "max_output_tokens" is read as its own key. Spreading the whole model_extra dict
-        # would let any stray top-level field (e.g. a client-supplied "stream" or
-        # "max_completion_tokens") collide with the chat completion call's own named
-        # arguments, or silently change validated fields like service_tier that used to be
-        # ignored entirely.
+        # CompactResponseRequest has no typed extra_body/max_output_tokens fields, only the
+        # extra="allow" catch-all (request.model_extra): only a nested "extra_body" key is
+        # spread into the summarization call, and "max_output_tokens" is read as its own
+        # key, so a stray top-level field (e.g. a client-supplied "stream") cannot collide
+        # with the chat completion call's own named arguments.
         model_extra = request.model_extra or {}
         return await self.openai_responses_impl.compact_openai_response(
             model=request.model,

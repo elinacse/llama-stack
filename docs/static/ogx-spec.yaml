@@ -6656,7 +6656,6 @@ components:
       anyOf:
       - discriminator:
           mapping:
-            compaction: '#/components/schemas/OpenAIResponseCompaction'
             file_search_call: '#/components/schemas/OpenAIResponseOutputMessageFileSearchToolCall'
             function_call: '#/components/schemas/OpenAIResponseOutputMessageFunctionToolCall'
             mcp_approval_request: '#/components/schemas/OpenAIResponseMCPApprovalRequest'
@@ -6683,16 +6682,16 @@ components:
           title: OpenAIResponseMCPApprovalRequest
         - $ref: '#/components/schemas/OpenAIResponseOutputMessageReasoningItem'
           title: OpenAIResponseOutputMessageReasoningItem
-        - $ref: '#/components/schemas/OpenAIResponseCompaction'
-          title: OpenAIResponseCompaction
-        title: OpenAIResponseMessage | ... (9 variants)
+        title: OpenAIResponseMessage | ... (8 variants)
       - $ref: '#/components/schemas/OpenAIResponseInputFunctionToolCallOutput'
         title: OpenAIResponseInputFunctionToolCallOutput
       - $ref: '#/components/schemas/OpenAIResponseMCPApprovalResponse'
         title: OpenAIResponseMCPApprovalResponse
+      - $ref: '#/components/schemas/OpenAIResponseCompaction'
+        title: OpenAIResponseCompaction
       - $ref: '#/components/schemas/OpenAIResponseMessage'
         title: OpenAIResponseMessage
-      title: OpenAIResponseInputFunctionToolCallOutput | OpenAIResponseMCPApprovalResponse | OpenAIResponseMessage
+      title: OpenAIResponseInputFunctionToolCallOutput | ... (4 variants)
     OpenAIResponseInputToolFileSearch:
       properties:
         type:
@@ -7003,7 +7002,6 @@ components:
     OpenAIResponseOutput:
       discriminator:
         mapping:
-          compaction: '#/components/schemas/OpenAIResponseCompaction'
           file_search_call: '#/components/schemas/OpenAIResponseOutputMessageFileSearchToolCall'
           function_call: '#/components/schemas/OpenAIResponseOutputMessageFunctionToolCall'
           mcp_approval_request: '#/components/schemas/OpenAIResponseMCPApprovalRequest'
@@ -7030,9 +7028,7 @@ components:
         title: OpenAIResponseMCPApprovalRequest
       - $ref: '#/components/schemas/OpenAIResponseOutputMessageReasoningItem'
         title: OpenAIResponseOutputMessageReasoningItem
-      - $ref: '#/components/schemas/OpenAIResponseCompaction'
-        title: OpenAIResponseCompaction
-      title: OpenAIResponseMessage | ... (9 variants)
+      title: OpenAIResponseMessage | ... (8 variants)
     OpenAIResponsePrompt:
       properties:
         id:
@@ -8079,7 +8075,6 @@ components:
         item:
           discriminator:
             mapping:
-              compaction: '#/components/schemas/OpenAIResponseCompaction'
               file_search_call: '#/components/schemas/OpenAIResponseOutputMessageFileSearchToolCall'
               function_call: '#/components/schemas/OpenAIResponseOutputMessageFunctionToolCall'
               mcp_approval_request: '#/components/schemas/OpenAIResponseMCPApprovalRequest'
@@ -8106,9 +8101,7 @@ components:
             title: OpenAIResponseMCPApprovalRequest
           - $ref: '#/components/schemas/OpenAIResponseOutputMessageReasoningItem'
             title: OpenAIResponseOutputMessageReasoningItem
-          - $ref: '#/components/schemas/OpenAIResponseCompaction'
-            title: OpenAIResponseCompaction
-          title: OpenAIResponseMessage | ... (9 variants)
+          title: OpenAIResponseMessage | ... (8 variants)
         output_index:
           title: Output Index
           type: integer
@@ -8136,7 +8129,6 @@ components:
         item:
           discriminator:
             mapping:
-              compaction: '#/components/schemas/OpenAIResponseCompaction'
               file_search_call: '#/components/schemas/OpenAIResponseOutputMessageFileSearchToolCall'
               function_call: '#/components/schemas/OpenAIResponseOutputMessageFunctionToolCall'
               mcp_approval_request: '#/components/schemas/OpenAIResponseMCPApprovalRequest'
@@ -8163,9 +8155,7 @@ components:
             title: OpenAIResponseMCPApprovalRequest
           - $ref: '#/components/schemas/OpenAIResponseOutputMessageReasoningItem'
             title: OpenAIResponseOutputMessageReasoningItem
-          - $ref: '#/components/schemas/OpenAIResponseCompaction'
-            title: OpenAIResponseCompaction
-          title: OpenAIResponseMessage | ... (9 variants)
+          title: OpenAIResponseMessage | ... (8 variants)
         output_index:
           title: Output Index
           type: integer
@@ -10901,12 +10891,9 @@ components:
                     title: OpenAIResponseMCPApprovalRequest
                   - $ref: '#/components/schemas/OpenAIResponseOutputMessageReasoningItem'
                     title: OpenAIResponseOutputMessageReasoningItem
-                  - $ref: '#/components/schemas/OpenAIResponseCompaction'
-                    title: OpenAIResponseCompaction
                   discriminator:
                     propertyName: type
                     mapping:
-                      compaction: '#/components/schemas/OpenAIResponseCompaction'
                       file_search_call: '#/components/schemas/OpenAIResponseOutputMessageFileSearchToolCall'
                       function_call: '#/components/schemas/OpenAIResponseOutputMessageFunctionToolCall'
                       mcp_approval_request: '#/components/schemas/OpenAIResponseMCPApprovalRequest'
@@ -10915,14 +10902,16 @@ components:
                       message: '#/components/schemas/OpenAIResponseMessage'
                       reasoning: '#/components/schemas/OpenAIResponseOutputMessageReasoningItem'
                       web_search_call: '#/components/schemas/OpenAIResponseOutputMessageWebSearchToolCall'
-                  title: OpenAIResponseMessage | ... (9 variants)
+                  title: OpenAIResponseMessage | ... (8 variants)
                 - $ref: '#/components/schemas/OpenAIResponseInputFunctionToolCallOutput'
                   title: OpenAIResponseInputFunctionToolCallOutput
                 - $ref: '#/components/schemas/OpenAIResponseMCPApprovalResponse'
                   title: OpenAIResponseMCPApprovalResponse
+                - $ref: '#/components/schemas/OpenAIResponseCompaction'
+                  title: OpenAIResponseCompaction
                 - $ref: '#/components/schemas/OpenAIResponseMessage'
                   title: OpenAIResponseMessage
-                title: OpenAIResponseInputFunctionToolCallOutput | OpenAIResponseMCPApprovalResponse | OpenAIResponseMessage
+                title: OpenAIResponseInputFunctionToolCallOutput | ... (4 variants)
               type: array
               title: list[OpenAIResponseMessageUnion | OpenAIResponseInputFunctionToolCallOutput | ...]
           - type: 'null'
@@ -11110,12 +11099,9 @@ components:
                   title: OpenAIResponseMCPApprovalRequest
                 - $ref: '#/components/schemas/OpenAIResponseOutputMessageReasoningItem'
                   title: OpenAIResponseOutputMessageReasoningItem
-                - $ref: '#/components/schemas/OpenAIResponseCompaction'
-                  title: OpenAIResponseCompaction
                 discriminator:
                   propertyName: type
                   mapping:
-                    compaction: '#/components/schemas/OpenAIResponseCompaction'
                     file_search_call: '#/components/schemas/OpenAIResponseOutputMessageFileSearchToolCall'
                     function_call: '#/components/schemas/OpenAIResponseOutputMessageFunctionToolCall'
                     mcp_approval_request: '#/components/schemas/OpenAIResponseMCPApprovalRequest'
@@ -11124,14 +11110,16 @@ components:
                     message: '#/components/schemas/OpenAIResponseMessage'
                     reasoning: '#/components/schemas/OpenAIResponseOutputMessageReasoningItem'
                     web_search_call: '#/components/schemas/OpenAIResponseOutputMessageWebSearchToolCall'
-                title: OpenAIResponseMessage | ... (9 variants)
+                title: OpenAIResponseMessage | ... (8 variants)
               - $ref: '#/components/schemas/OpenAIResponseInputFunctionToolCallOutput'
                 title: OpenAIResponseInputFunctionToolCallOutput
               - $ref: '#/components/schemas/OpenAIResponseMCPApprovalResponse'
                 title: OpenAIResponseMCPApprovalResponse
+              - $ref: '#/components/schemas/OpenAIResponseCompaction'
+                title: OpenAIResponseCompaction
               - $ref: '#/components/schemas/OpenAIResponseMessage'
                 title: OpenAIResponseMessage
-              title: OpenAIResponseInputFunctionToolCallOutput | OpenAIResponseMCPApprovalResponse | OpenAIResponseMessage
+              title: OpenAIResponseInputFunctionToolCallOutput | ... (4 variants)
             type: array
             title: list[OpenAIResponseMessageUnion | OpenAIResponseInputFunctionToolCallOutput | ...]
           title: string | list[OpenAIResponseMessageUnion | OpenAIResponseInputFunctionToolCallOutput | ...]
@@ -16221,12 +16209,9 @@ components:
           title: OpenAIResponseMCPApprovalRequest
         - $ref: '#/components/schemas/OpenAIResponseOutputMessageReasoningItem'
           title: OpenAIResponseOutputMessageReasoningItem
-        - $ref: '#/components/schemas/OpenAIResponseCompaction'
-          title: OpenAIResponseCompaction
         discriminator:
           propertyName: type
           mapping:
-            compaction: '#/components/schemas/OpenAIResponseCompaction'
             file_search_call: '#/components/schemas/OpenAIResponseOutputMessageFileSearchToolCall'
             function_call: '#/components/schemas/OpenAIResponseOutputMessageFunctionToolCall'
             mcp_approval_request: '#/components/schemas/OpenAIResponseMCPApprovalRequest'
@@ -16236,12 +16221,14 @@ components:
             reasoning: '#/components/schemas/OpenAIResponseOutputMessageReasoningItem'
             web_search_call: '#/components/schemas/OpenAIResponseOutputMessageWebSearchToolCall'
         x-stainless-naming: OpenAIResponseMessageOutputOneOf
-        title: OpenAIResponseMessage | ... (9 variants)
+        title: OpenAIResponseMessage | ... (8 variants)
       - $ref: '#/components/schemas/OpenAIResponseInputFunctionToolCallOutput'
         title: OpenAIResponseInputFunctionToolCallOutput
       - $ref: '#/components/schemas/OpenAIResponseMCPApprovalResponse'
         title: OpenAIResponseMCPApprovalResponse
-      title: OpenAIResponseInputFunctionToolCallOutput | OpenAIResponseMCPApprovalResponse
+      - $ref: '#/components/schemas/OpenAIResponseCompaction'
+        title: OpenAIResponseCompaction
+      title: OpenAIResponseInputFunctionToolCallOutput | OpenAIResponseMCPApprovalResponse | OpenAIResponseCompaction
       x-stainless-naming: OpenAIResponseMessageOutputUnion
     OpenAIResponseOutputItem:
       oneOf:
@@ -16261,12 +16248,9 @@ components:
         title: OpenAIResponseMCPApprovalRequest
       - $ref: '#/components/schemas/OpenAIResponseOutputMessageReasoningItem'
         title: OpenAIResponseOutputMessageReasoningItem
-      - $ref: '#/components/schemas/OpenAIResponseCompaction'
-        title: OpenAIResponseCompaction
       discriminator:
         propertyName: type
         mapping:
-          compaction: '#/components/schemas/OpenAIResponseCompaction'
           file_search_call: '#/components/schemas/OpenAIResponseOutputMessageFileSearchToolCall'
           function_call: '#/components/schemas/OpenAIResponseOutputMessageFunctionToolCall'
           mcp_approval_request: '#/components/schemas/OpenAIResponseMCPApprovalRequest'
@@ -16276,7 +16260,7 @@ components:
           reasoning: '#/components/schemas/OpenAIResponseOutputMessageReasoningItem'
           web_search_call: '#/components/schemas/OpenAIResponseOutputMessageWebSearchToolCall'
       x-stainless-naming: OpenAIResponseOutputItem
-      title: OpenAIResponseMessage | ... (9 variants)
+      title: OpenAIResponseMessage | ... (8 variants)
     ChatCompletionMessageToolCall:
       properties:
         id:
